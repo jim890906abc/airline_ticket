@@ -110,13 +110,21 @@ class Settings:
                 self.keyboard_removed = bool(raw.get("keyboard_removed", False))
                 if "rules" in raw:
                     self.rules = [Rule.from_dict(r) for r in raw["rules"]]
-                else:  # 舊版 bot 的設定：只有一個門檻
+                else:  # 舊版 bot 的設定：只有一個門檻 → 轉成一條規則並存檔
                     self.rules = [self._default_rule(int(raw.get("max_price") or default_max_price))]
+                    self._try_save()
             except Exception as e:
                 log.warning("設定檔讀取失敗，使用預設：%s", e)
                 exists = False
         if not exists:
             self.rules = [self._default_rule(default_max_price)]
+            self._try_save()
+
+    def _try_save(self) -> None:
+        try:
+            self.save()
+        except OSError as e:
+            log.warning("設定檔無法寫入：%s", e)
 
     @staticmethod
     def _default_rule(max_price: int) -> Rule:

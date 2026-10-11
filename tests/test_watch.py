@@ -141,6 +141,7 @@ def test_settings_persist_and_migrate_old_bot_settings(tmp_path):
     p.write_text(json.dumps({"max_price": 4200, "paused": True}))  # 舊版 bot 格式
     s = Settings(str(p))
     assert s.paused and len(s.rules) == 1 and s.rules[0].max_price == 4200
+    assert Settings(str(p)).rules[0].id == s.rules[0].id  # 轉換後已存檔，重開 id 不變
     r = s.upsert_rule({"origin": "KIX", "destination": "TPE", "max_price": 3000, "name": "回程"})
     assert r.id and len(Settings(str(p)).rules) == 2
     s.upsert_rule({**r.__dict__, "max_price": 2800})
