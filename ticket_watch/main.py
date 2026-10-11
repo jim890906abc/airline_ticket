@@ -80,6 +80,38 @@ def pick_dates(
     return chosen
 
 
+# ---------------------------------------------------------------- 價格紀錄
+
+
+def record_date(state: State, d: str, fares: list[Fare], now: datetime, keep: int = 5) -> None:
+    """記錄某日期查到的最便宜幾班，給「最便宜 5 張」等功能使用。"""
+    fares = sorted(fares, key=lambda f: f.price)
+    cheapest = fares[0] if fares else None
+    state.dates[d] = {
+        "checked_at": now.isoformat(),
+        "min_price": cheapest.price if cheapest else None,
+        "airline": cheapest.airline if cheapest else "",
+        "link": cheapest.link if cheapest else "",
+        "fares": [
+            {"p": f.price, "a": f.airline, "dt": f.depart_time, "at": f.arrive_time, "s": f.stops}
+            for f in fares[:keep]
+        ],
+    }
+
+
+def known_fares(state: State, today: str) -> list[tuple[Fare, str]]:
+    """所有已知班機（含查詢時間），依價格排序。"""
+    out = []
+    for d, info in state.dates.items():
+        if d < today:
+            continue
+        for x in info.get("fares") or []:
+            fare = Fare(d, x["p"], x["a"], x["dt"], x["at"], x["s"], "google", info.get("link", ""))
+            out.append((fare, info.get("checked_at", "")))
+    out.sort(key=lambda t: (t[0].price, t[0].date, t[0].depart_time))
+    return out
+
+
 # ---------------------------------------------------------------- 通知判斷
 
 
@@ -195,12 +227,8 @@ def run(
             continue
         errors_in_row = 0
         verified.add(d)
+        record_date(state, d, fares, now)
         cheapest = fares[0] if fares else None
-        state.dates[d] = {
-            "checked_at": now.isoformat(),
-            "min_price": cheapest.price if cheapest else None,
-            "airline": cheapest.airline if cheapest else "",
-        }
         log.info(
             "%s 最低 %s",
             d,
@@ -253,6 +281,13 @@ def run(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="桃園 → 大阪 低價機票 Telegram 通知")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="check",
+        choices=["check", "bot"],
+        help="check = 掃描一輪就結束（預設）；bot = 常駐執行，提供按鈕並定時掃描",
+    )
     parser.add_argument("--test-telegram", action="store_true", help="發一則測試訊息")
     parser.add_argument("--date", help="只查單一日期並印出結果（除錯用，不通知）")
     args = parser.parse_args(argv)
@@ -296,9 +331,36 @@ def main(argv: list[str] | None = None) -> int:
                 direct_only=cfg.max_stops == 0,
             )
 
+    if args.command == "bot":
+        return run_bot(cfg, tg, gf.search, tp_fetch)
+
     state = State.load(cfg.state_file)
     state = run(cfg, state, gf.search, tg, datetime.now(timezone.utc), tp_fetch=tp_fetch)
     state.save(cfg.state_file)
+    return 0
+
+
+def run_bot(cfg: Config, tg: Telegram, search, tp_fetch) -> int:
+    import fcntl
+    import os
+
+    from .bot import Bot
+
+    if not cfg.telegram_token or not tg.chat_id:
+        log.error("bot 模式需要 TELEGRAM_BOT_TOKEN 與 TELEGRAM_CHAT_ID")
+        return 1
+    # 同時只允許一個 bot 在跑（cron 每 5 分鐘呼叫一次當作看門狗）
+    os.makedirs(os.path.dirname(cfg.state_file) or ".", exist_ok=True)
+    lock = open(os.path.join(os.path.dirname(cfg.state_file) or ".", "bot.lock"), "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0  # 已經有一個在跑了
+    lock.seek(0)
+    lock.truncate()
+    lock.write(str(os.getpid()))  # 給 install.sh 更新時重啟用
+    lock.flush()
+    Bot(cfg, tg, search, tp_fetch=tp_fetch).run_forever()
     return 0
 
 

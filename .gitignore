@@ -5,3 +5,5 @@ venv/
 .env
 state/
 .pytest_cache/
+run.sh
+*.log

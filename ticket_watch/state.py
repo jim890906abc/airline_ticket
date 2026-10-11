@@ -19,6 +19,7 @@ class State:
     fail_streak: int = 0
     block_warned: bool = False
     last_summary: str = ""
+    last_scan_at: str = ""
 
     @classmethod
     def load(cls, path: str) -> "State":
