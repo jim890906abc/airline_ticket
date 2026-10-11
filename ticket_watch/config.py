@@ -25,9 +25,9 @@ def _bool(name: str, default: bool) -> bool:
 
 @dataclass
 class Config:
-    origin: str = "TPE"  # 桃園機場
+    origin: str = "TPE"  # 桃園機場（GitHub Actions 單次模式用）
     destination: str = "KIX"  # 關西機場（大阪唯一有國際線的機場）
-    max_price: int = 3500  # 單程低於此價格（TWD，含稅）就通知
+    max_price: int = 3500  # 預設通知規則的門檻（之後在網站上改）
     currency: str = "TWD"
     max_stops: int = 0  # 0 = 只看直飛
     days_ahead_min: int = 1
@@ -44,6 +44,9 @@ class Config:
     travelpayouts_token: str = ""
     state_file: str = "state/state.json"
     dry_run: bool = False
+    web_host: str = "0.0.0.0"
+    web_port: int = 8787
+    web_password: str = ""  # 空白 = 不需要密碼（只建議在只綁 127.0.0.1 時使用）
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -68,4 +71,7 @@ class Config:
             state_file=os.environ.get("STATE_FILE", "state/state.json").strip()
             or "state/state.json",
             dry_run=_bool("DRY_RUN", False),
+            web_host=os.environ.get("WEB_HOST", "0.0.0.0").strip() or "0.0.0.0",
+            web_port=_int("WEB_PORT", 8787),
+            web_password=os.environ.get("WEB_PASSWORD", "").strip(),
         )

@@ -5,7 +5,7 @@ Google Flights 會聚合虎航、樂桃、捷星、酷航等廉航與傳統航�
 
 降低被封鎖風險的做法：
 - 整輪查詢共用同一個 client（保留 cookie，像同一個瀏覽器在連續查詢）
-- 每個請求之間由呼叫端隨機等待（見 main.py）
+- 每個請求之間由呼叫端隨機等待（見 service.Gate）
 - 回應異常（非 200、頁面結構不對）就拋出 BlockedError，讓呼叫端立刻停手
 """
 
@@ -29,9 +29,7 @@ class BlockedError(Exception):
 
 
 class GoogleFlightsClient:
-    def __init__(self, origin: str, destination: str, currency: str, max_stops: int):
-        self.origin = origin
-        self.destination = destination
+    def __init__(self, currency: str, max_stops: int):
         self.currency = currency
         self.max_stops = max_stops
         self._client = Client(
@@ -42,13 +40,13 @@ class GoogleFlightsClient:
             timeout=30,
         )
 
-    def _query(self, date: str):
+    def _query(self, origin: str, destination: str, date: str):
         return create_query(
             flights=[
                 FlightQuery(
                     date=date,
-                    from_airport=self.origin,
-                    to_airport=self.destination,
+                    from_airport=origin,
+                    to_airport=destination,
                     max_stops=self.max_stops,
                 )
             ],
@@ -58,8 +56,8 @@ class GoogleFlightsClient:
             currency=self.currency,
         )
 
-    def search(self, date: str) -> list[Fare]:
-        q = self._query(date)
+    def search(self, origin: str, destination: str, date: str) -> list[Fare]:
+        q = self._query(origin, destination, date)
         try:
             res = self._client.get(URL, params=q.params())
         except Exception as e:  # 連線錯誤也視為可能被擋，交由呼叫端退避
@@ -67,10 +65,14 @@ class GoogleFlightsClient:
 
         if res.status_code != 200:
             raise BlockedError(f"HTTP {res.status_code}")
-        return parse_fares(res.text, date=date, link=q.url())
+        return parse_fares(
+            res.text, date=date, link=q.url(), origin=origin, destination=destination
+        )
 
 
-def parse_fares(html: str, *, date: str, link: str) -> list[Fare]:
+def parse_fares(
+    html: str, *, date: str, link: str, origin: str = "TPE", destination: str = "KIX"
+) -> list[Fare]:
     script = LexborHTMLParser(html).css_first(r"script.ds\:1")
     if script is None:
         # 沒有資料區塊：通常是 consent 頁、驗證碼或 Google 改版
@@ -131,6 +133,8 @@ def parse_fares(html: str, *, date: str, link: str) -> list[Fare]:
             stops=len(f.flights) - 1,
             source="google",
             link=link,
+            origin=origin,
+            destination=destination,
         )
         # 同一班機可能同時出現在「最佳」與「其他」，保留較低價
         if fare.key not in fares or fare.price < fares[fare.key].price:

@@ -86,6 +86,8 @@ def fetch_cheapest(
                         stops=int(item.get("transfers") or 0),
                         source="travelpayouts",
                         link=f"https://www.aviasales.com{link}" if link.startswith("/") else link,
+                        origin=origin,
+                        destination=destination,
                     )
                 )
             except (KeyError, TypeError, ValueError):

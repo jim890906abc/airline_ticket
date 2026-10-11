@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>桃園⇄大阪 機票監控</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E✈️%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f5f2; --surface: #ffffff; --surface-2: #f0efec; --border: #e2e0da;
+  --ink: #1d1d1b; --ink-2: #55534e; --ink-3: #85837c;
+  --accent: #256abf; --accent-ink: #ffffff; --accent-soft: #e3eefc;
+  --good: #1f7a4d; --good-soft: #e2f3ea; --warn: #9a5b00; --warn-soft: #fdf0d8; --bad: #b3261e; --bad-soft: #fbe4e2;
+  /* 價格日曆：單一藍色色階，越便宜越深 */
+  --h0: #cde2fb; --h1: #9ec5f4; --h2: #6da7ec; --h3: #3987e5; --h4: #1c5cab;
+  --h0t: #1d1d1b; --h1t: #1d1d1b; --h2t: #1d1d1b; --h3t: #ffffff; --h4t: #ffffff;
+  --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 1px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --surface: #1f1f1e; --surface-2: #2a2a28; --border: #383835;
+    --ink: #f0efec; --ink-2: #bdbbb5; --ink-3: #8d8b85;
+    --accent: #5598e7; --accent-ink: #0d1b2e; --accent-soft: #1b2c44;
+    --good: #5cc48f; --good-soft: #17301f; --warn: #f0b350; --warn-soft: #36290f; --bad: #f28b82; --bad-soft: #3a1b19;
+    --h0: #0d366b; --h1: #184f95; --h2: #256abf; --h3: #3987e5; --h4: #86b6ef;
+    --h0t: #f0efec; --h1t: #f0efec; --h2t: #ffffff; --h3t: #ffffff; --h4t: #0d1b2e;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --surface: #1f1f1e; --surface-2: #2a2a28; --border: #383835;
+  --ink: #f0efec; --ink-2: #bdbbb5; --ink-3: #8d8b85;
+  --accent: #5598e7; --accent-ink: #0d1b2e; --accent-soft: #1b2c44;
+  --good: #5cc48f; --good-soft: #17301f; --warn: #f0b350; --warn-soft: #36290f; --bad: #f28b82; --bad-soft: #3a1b19;
+  --h0: #0d366b; --h1: #184f95; --h2: #256abf; --h3: #3987e5; --h4: #86b6ef;
+  --h0t: #f0efec; --h1t: #f0efec; --h2t: #ffffff; --h3t: #ffffff; --h4t: #0d1b2e;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+a { color: var(--accent); }
+header { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+.bar { max-width: 1100px; margin: 0 auto; padding: 10px 16px 0; }
+.title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.title h1 { font-size: 18px; margin: 0; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); }
+.pill.good { background: var(--good-soft); color: var(--good); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+nav { display: flex; gap: 2px; overflow-x: auto; margin-top: 8px; scrollbar-width: none; }
+nav button { border: 0; background: none; color: var(--ink-2); padding: 10px 12px; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+section { display: none; }
+section.on { display: block; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); margin-bottom: 16px; }
+.card h2 { font-size: 16px; margin: 0 0 12px; }
+.card h3 { font-size: 14px; margin: 0 0 8px; color: var(--ink-2); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.stat .k { font-size: 12px; color: var(--ink-3); }
+.stat .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.muted { color: var(--ink-3); font-size: 13px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+input, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+input[type=number] { width: 110px; }
+input[type=checkbox] { width: auto; }
+.btn { font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.danger { color: var(--bad); }
+.btn.sm { padding: 3px 10px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); color: var(--ink-2); padding: 7px 12px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.wd { display: flex; gap: 4px; flex-wrap: wrap; }
+.wd label { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.fares { list-style: none; margin: 0; padding: 0; }
+.fares li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.fares li:first-child { border-top: 0; }
+.price { font-weight: 700; font-variant-numeric: tabular-nums; }
+.below { color: var(--good); }
+.sub { font-size: 13px; color: var(--ink-2); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; color: var(--ink-3); font-weight: 600; border-top: 0; cursor: default; }
+th.sortable { cursor: pointer; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+.progress { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; background: var(--accent); transition: width .3s; }
+.months { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.month h3 { margin: 0 0 6px; font-size: 14px; color: var(--ink); }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal .dow { font-size: 11px; color: var(--ink-3); text-align: center; padding: 2px 0; }
+.cal .d { aspect-ratio: 1 / .9; border-radius: 6px; background: var(--surface-2); display: flex; flex-direction: column; justify-content: space-between; padding: 3px 4px; font-size: 11px; color: var(--ink-3); cursor: pointer; border: 2px solid transparent; position: relative; min-width: 0; }
+.cal .d.empty { background: none; cursor: default; }
+.cal .d.past { opacity: .35; cursor: default; }
+.cal .d.watch { border-color: var(--accent); border-style: dashed; }
+.cal .d .p { font-weight: 700; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.cal .d .star { position: absolute; top: 1px; right: 3px; font-size: 11px; }
+.cal .d:focus-visible { outline: 2px solid var(--ink); }
+.legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.legend .sw { display: inline-block; width: 22px; height: 14px; border-radius: 3px; }
+.legend .ramp { display: inline-flex; gap: 2px; }
+.drawer { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-end; justify-content: center; z-index: 50; }
+.drawer.on { display: flex; }
+.drawer .panel { background: var(--surface); width: min(560px, 100%); max-height: 85vh; overflow: auto; border-radius: 14px 14px 0 0; padding: 16px; }
+@media (min-width: 700px) { .drawer { align-items: center; } .drawer .panel { border-radius: 14px; } }
+.rule { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+.rule:first-child { border-top: 0; }
+.rule.off .info { opacity: .5; }
+.switch { position: relative; width: 40px; height: 22px; display: inline-block; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; background: var(--border); border-radius: 99px; cursor: pointer; transition: .2s; }
+.switch span::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::before { transform: translateX(18px); }
+pre.cmd { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 6px 0; white-space: pre-wrap; word-break: break-all; }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; display: none; z-index: 99; max-width: calc(100% - 32px); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); }
+.tag.live { background: var(--good-soft); color: var(--good); }
+.tag.err { background: var(--bad-soft); color: var(--bad); }
+.joblist li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; cursor: pointer; }
+.joblist { list-style: none; margin: 0; padding: 0; }
+.hide { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="title">
+      <h1>✈️ 桃園 ⇄ 大阪 機票監控</h1>
+      <span id="hdrStatus" class="pill">載入中…</span>
+    </div>
+    <nav id="tabs">
+      <button data-tab="overview" class="on">總覽</button>
+      <button data-tab="calendar">價格日曆</button>
+      <button data-tab="search">即時查詢</button>
+      <button data-tab="roundtrip">來回組合</button>
+      <button data-tab="rules">通知設定</button>
+      <button data-tab="system">安裝 / 系統</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ============================== 總覽 ============================== -->
+<section id="overview" class="on">
+  <div class="stats" id="ovStats"></div>
+  <div class="card" id="ovJob" style="margin-top:16px"></div>
+  <div class="grid2" id="ovCheapest"></div>
+  <p class="muted">價格來自背景掃描與即時查詢的紀錄（Google Flights，含稅單程，不含行李）。「X 小時前」代表資料的新鮮度，要最新價格請用「即時查詢」。</p>
+</section>
+
+<!-- ============================== 價格日曆 ============================== -->
+<section id="calendar">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="seg" id="calRoute"></div>
+      <div class="legend">
+        <span>貴</span><span class="ramp"><span class="sw" style="background:var(--h0)"></span><span class="sw" style="background:var(--h1)"></span><span class="sw" style="background:var(--h2)"></span><span class="sw" style="background:var(--h3)"></span><span class="sw" style="background:var(--h4)"></span></span><span>便宜</span>
+        <span>★ 低於通知門檻</span>
+        <span><span class="sw" style="border:2px dashed var(--accent)"></span> 在通知範圍內、尚未查價</span>
+      </div>
+    </div>
+    <p class="muted" id="calNote"></p>
+  </div>
+  <div class="months" id="calMonths"></div>
+</section>
+
+<!-- ============================== 即時查詢 ============================== -->
+<section id="search">
+  <div class="card">
+    <h2>即時查詢日期區間的最低價</h2>
+    <div class="row">
+      <label class="f">方向<select id="sRoute"><option value="TPE-KIX">桃園 → 大阪</option><option value="KIX-TPE">大阪 → 桃園</option><option value="both">雙向</option></select></label>
+      <label class="f">出發日（起）<input type="date" id="sFrom"></label>
+      <label class="f">出發日（迄）<input type="date" id="sTo"></label>
+      <label class="f">沿用幾小時內的紀錄<select id="sAge"><option value="0">不沿用（全部重查）</option><option value="1">1 小時</option><option value="3" selected>3 小時</option><option value="6">6 小時</option><option value="12">12 小時</option><option value="24">24 小時</option></select></label>
+      <label class="f">只顯示低於（選填）<input type="number" id="sMax" placeholder="例 4000"></label>
+    </div>
+    <div style="margin-top:10px">
+      <div class="muted" style="margin-bottom:4px">只查星期（不勾 = 全部）</div>
+      <div class="wd" id="sWd"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="sGo">開始查詢</button>
+      <span class="muted" id="sEst"></span>
+    </div>
+    <p class="muted">為了不被 Google 封鎖，每個日期間隔約 8–20 秒查一次；一個月約需 5–10 分鐘。可以關掉頁面，查詢會在背景繼續，結果之後在下方「最近的查詢」看。符合 Telegram 通知規則的低價也會推播。</p>
+  </div>
+  <div class="card hide" id="sJob"></div>
+  <div class="card">
+    <h2>最近的查詢</h2>
+    <ul class="joblist" id="sJobs"></ul>
+  </div>
+</section>
+
+<!-- ============================== 來回組合 ============================== -->
+<section id="roundtrip">
+  <div class="card">
+    <h2>來回組合（兩張單程票自由搭配）</h2>
+    <div class="row">
+      <label class="f">從哪出發<select id="rOut"><option value="TPE-KIX">桃園出發（台灣 → 大阪 → 台灣）</option><option value="KIX-TPE">大阪出發（大阪 → 台灣 → 大阪）</option></select></label>
+      <label class="f">去程日（起）<input type="date" id="rFrom"></label>
+      <label class="f">去程日（迄）<input type="date" id="rTo"></label>
+      <label class="f">停留最少（晚）<input type="number" id="rMin" value="3" min="0" max="60"></label>
+      <label class="f">停留最多（晚）<input type="number" id="rMax" value="6" min="0" max="60"></label>
+      <label class="f">來回總價上限（選填）<input type="number" id="rTotal" placeholder="例 8000"></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="rGo">計算組合</button>
+      <button class="btn" id="rFetch">先即時查詢缺少的日期</button>
+    </div>
+    <p class="muted" id="rNote">用已查到的價格計算；如果缺很多日期，先按「即時查詢缺少的日期」（會同時查去程與回程區間）。</p>
+  </div>
+  <div class="card hide" id="rJob"></div>
+  <div class="card"><div class="tablewrap" id="rResult"><p class="muted">設定條件後按「計算組合」。</p></div></div>
+</section>
+
+<!-- ============================== Telegram 通知 ============================== -->
+<section id="rules">
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div>
+        <h2 style="margin:0">Telegram 通知</h2>
+        <div class="muted">背景只會掃描「啟用中規則」涵蓋的日期，符合條件的新低價會推播到 Telegram。</div>
+      </div>
+      <div class="row" style="align-items:center">
+        <label class="switch" title="通知開關"><input type="checkbox" id="notifyOn"><span></span></label><span id="notifyLabel"></span>
+        <button class="btn sm" id="tgTest">發測試訊息</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h2 style="margin:0">通知規則</h2>
+      <button class="btn primary sm" id="ruleNew">＋ 新增規則</button>
+    </div>
+    <div id="ruleList"></div>
+    <p class="muted" id="ruleCycle"></p>
+  </div>
+</section>
+
+<!-- ============================== 系統 ============================== -->
+<section id="system">
+  <div class="card">
+    <h2>一鍵安裝 / 更新</h2>
+    <h3>第一次安裝（Mac / Linux / WSL）</h3>
+    <pre class="cmd" id="cmdInstall"></pre>
+    <button class="btn sm" data-copy="cmdInstall">複製</button>
+    <h3 style="margin-top:16px">更新到 GitHub 最新版本（已安裝過）</h3>
+    <pre class="cmd" id="cmdUpdate"></pre>
+    <button class="btn sm" data-copy="cmdUpdate">複製</button>
+    <p class="muted">更新會直接對齊 GitHub 上的版本（不會有 merge 衝突），保留 token、通知規則與價格紀錄，並自動重啟服務。目前版本：<span id="sysVer"></span></p>
+  </div>
+  <div class="card">
+    <h2>背景掃描設定</h2>
+    <div class="row">
+      <label class="f">每輪查幾個日期<input type="number" id="cfgPerRun" min="1" max="40"></label>
+      <label class="f">每幾小時掃一輪<input type="number" id="cfgInterval" min="1" max="24" step="0.5"></label>
+      <button class="btn primary" id="cfgSave">儲存</button>
+    </div>
+    <p class="muted" id="cfgEst"></p>
+    <p class="muted">建議維持每天 150 個請求以內。單一 IP 查太密集，Google 可能暫時擋下（會收到 Telegram 警告）。</p>
+  </div>
+  <div class="card">
+    <h2>最近的工作</h2>
+    <ul class="joblist" id="sysJobs"></ul>
+  </div>
+</section>
+</main>
+
+<div class="drawer" id="drawer"><div class="panel" id="drawerPanel"></div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const WD = ["一", "二", "三", "四", "五", "六", "日"];
+const ROUTE_LABEL = { "TPE-KIX": "桃園 → 大阪", "KIX-TPE": "大阪 → 桃園" };
+let OV = null, RULES = [], SYS = null, calRoute = "TPE-KIX";
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function safeUrl(u) { return /^https?:\/\//.test(u || "") ? esc(u) : "#"; }
+function money(n) { return n == null ? "—" : "NT$" + Number(n).toLocaleString("en-US"); }
+function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function addDays(s, n) { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return iso(d); }
+function wd(s) { return WD[(new Date(s + "T00:00:00").getDay() + 6) % 7]; }
+function fdate(s) { const y = s.slice(0, 4) !== String(new Date().getFullYear()) ? s.slice(0, 4) + "/" : ""; return `${y}${s.slice(5).replace("-", "/")}（${wd(s)}）`; }
+function ago(s) {
+  if (!s) return "未查";
+  const m = Math.floor((Date.now() - new Date(s).getTime()) / 60000);
+  if (m < 1) return "剛剛"; if (m < 60) return m + " 分鐘前"; if (m < 1440) return Math.floor(m / 60) + " 小時前"; return Math.floor(m / 1440) + " 天前";
+}
+function until(s) {
+  const m = Math.round((new Date(s).getTime() - Date.now()) / 60000);
+  if (m <= 0) return "即將"; if (m < 60) return m + " 分鐘後"; return (m / 60).toFixed(1) + " 小時後";
+}
+function dur(sec) { if (sec < 60) return sec + " 秒"; return Math.ceil(sec / 60) + " 分鐘"; }
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+function fareLine(f, opts = {}) {
+  const stops = f.stops === 0 ? "直飛" : `轉機 ${f.stops} 次`;
+  const times = f.depart_time + (f.arrive_time ? "→" + f.arrive_time : "");
+  const thr = f.threshold !== undefined ? f.threshold : opts.threshold;
+  const below = thr && f.price < thr;
+  return `<li><div><b>${fdate(f.date)}</b> ${opts.route ? `<span class="tag">${ROUTE_LABEL[f.origin + "-" + f.destination]}</span>` : ""}
+    <div class="sub">${esc(f.airline)} ${esc(times)} ${stops}${f.checked_at ? ` · ${ago(f.checked_at)}查` : ""}</div></div>
+    <div style="text-align:right"><div class="price ${below ? "below" : ""}">${money(f.price)}${below ? " ★" : ""}</div>
+    <a href="${safeUrl(f.link)}" target="_blank" rel="noopener" class="sub">Google Flights ↗</a></div></li>`;
+}
+function wdPicker(el, name) {
+  el.innerHTML = WD.map((w, i) => `<label><input type="checkbox" name="${name}" value="${i}"> ${w}</label>`).join("");
+}
+function wdValues(name) { return $$(`input[name=${name}]:checked`).map(x => +x.value); }
+
+// ---------------------------------------------------------------- 分頁
+$("#tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  showTab(b.dataset.tab);
+});
+function showTab(tab) {
+  $$("#tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === tab));
+  $$("main section").forEach(x => x.classList.toggle("on", x.id === tab));
+  history.replaceState(null, "", "#" + tab);
+  if (tab === "calendar") loadCalendar();
+  if (tab === "rules") loadRules();
+  if (tab === "system") loadSystem();
+  if (tab === "search") loadJobs();
+}
+
+// ---------------------------------------------------------------- 總覽
+async function loadOverview() {
+  try { OV = await api("/api/overview"); } catch (e) { $("#hdrStatus").textContent = "連線失敗"; $("#hdrStatus").className = "pill bad"; return; }
+  const o = OV;
+  const st = $("#hdrStatus");
+  if (o.fail_streak >= 2) { st.textContent = `⚠️ 連續 ${o.fail_streak} 輪查詢失敗`; st.className = "pill bad"; }
+  else if (o.current_job) { st.textContent = `⏳ ${o.current_job.kind === "scan" ? "掃描" : "查詢"}中 ${o.current_job.done}/${o.current_job.total}`; st.title = o.current_job.label; st.className = "pill warn"; }
+  else if (o.paused) { st.textContent = "⏸ 通知已暫停"; st.className = "pill warn"; }
+  else { st.textContent = "✅ 監控中"; st.className = "pill good"; }
+
+  $("#ovStats").innerHTML = [
+    ["通知", o.paused ? "⏸ 暫停中" : "✅ 開啟"],
+    ["上次掃描", o.last_scan_at ? ago(o.last_scan_at) : "尚未"],
+    ["下次掃描", until(o.next_scan_at)],
+    ["通知範圍已查價", `${o.watch.covered} / ${o.watch.targets} 天`],
+    ["已知價格", `去 ${o.known_dates["TPE-KIX"]}・回 ${o.known_dates["KIX-TPE"]} 天`],
+  ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+
+  const j = o.current_job;
+  $("#ovJob").innerHTML = j ? jobHtml(j, false) : `<div class="row" style="justify-content:space-between;align-items:center">
+      <div><b>背景閒置中</b> <span class="muted">${o.queued_jobs ? `（${o.queued_jobs} 個查詢排隊中）` : ""}</span></div>
+      <button class="btn" id="scanNow">🔍 立即掃描一輪</button></div>`;
+  const sn = $("#scanNow");
+  if (sn) sn.onclick = async () => { try { await api("/api/scan", {}); toast("已開始掃描"); loadOverview(); } catch (e) { toast(e.message); } };
+  bindCancel($("#ovJob"));
+
+  $("#ovCheapest").innerHTML = o.routes.map(r => {
+    const list = o.cheapest[r.id];
+    return `<div class="card"><h2>${r.label} 最便宜 10 張</h2>${list.length ? `<ul class="fares">${list.map(f => fareLine(f)).join("")}</ul>`
+      : `<p class="muted">還沒有資料。到「Telegram 通知」新增這個方向的規則讓背景掃描，或用「即時查詢」。</p>`}</div>`;
+  }).join("");
+}
+
+function jobHtml(j, showResults = true, maxPrice = null) {
+  const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
+  const running = j.status === "queued" || j.status === "running";
+  const stLabel = { queued: "排隊中", running: "查詢中", done: "完成", failed: "失敗", cancelled: "已取消" }[j.status];
+  let h = `<div class="row" style="justify-content:space-between;align-items:center">
+    <div><b>${esc(j.label)}</b> <span class="tag ${j.status === "done" ? "live" : j.status === "failed" ? "err" : ""}">${stLabel}</span></div>
+    ${running ? `<button class="btn sm danger" data-cancel="${j.id}">取消</button>` : ""}</div>
+    <div class="progress"><div style="width:${pct}%"></div></div>
+    <div class="muted">${j.done} / ${j.total}${running && j.eta_seconds ? ` · 預估還要 ${dur(j.eta_seconds)}` : ""}${j.message ? " · " + esc(j.message) : ""}</div>`;
+  if (showResults && j.results && j.results.length) {
+    const rows = [];
+    for (const r of j.results) {
+      if (r.error) { rows.push({ date: r.date, route: r.route, err: r.error }); continue; }
+      if (!r.fares.length) { rows.push({ date: r.date, route: r.route, none: true, cache: r.from_cache }); continue; }
+      for (const f of r.fares) rows.push({ ...f, route: r.route, cache: r.from_cache, checked_at: r.checked_at });
+    }
+    const allFlights = !!jobAll[j.id];
+    const perDate = allFlights ? rows : rows.filter((x, i) => rows.findIndex(y => y.date === x.date && y.route === x.route) === i);
+    const filtered = perDate.filter(x => !maxPrice || x.price == null || x.price < maxPrice);
+    const sortBy = jobSort[j.id] || "price";
+    filtered.sort((a, b) => sortBy === "price" ? ((a.price ?? 1e9) - (b.price ?? 1e9) || a.date.localeCompare(b.date)) : (a.date.localeCompare(b.date) || (a.price ?? 1e9) - (b.price ?? 1e9)));
+    const best = Math.min(...rows.filter(x => x.price).map(x => x.price));
+    h += `<label class="muted" style="display:inline-flex;gap:6px;margin-top:10px"><input type="checkbox" data-all="${j.id}" ${allFlights ? "checked" : ""}> 顯示每天所有航班（預設只列每天最便宜的一班）</label>
+      <div class="tablewrap" style="margin-top:8px"><table><thead><tr>
+      <th class="sortable" data-sort="${j.id}:date">日期 ${sortBy === "date" ? "▼" : ""}</th><th>方向</th><th class="num sortable" data-sort="${j.id}:price">價格 ${sortBy === "price" ? "▼" : ""}</th><th>航班</th><th>來源</th><th></th></tr></thead><tbody>
+      ${filtered.slice(0, 300).map(x => x.err ? `<tr><td>${fdate(x.date)}</td><td>${ROUTE_LABEL[x.route]}</td><td colspan="4"><span class="tag err">查詢失敗</span></td></tr>`
+        : x.none ? `<tr><td>${fdate(x.date)}</td><td>${ROUTE_LABEL[x.route]}</td><td colspan="4" class="muted">沒有航班</td></tr>`
+        : `<tr><td>${fdate(x.date)}</td><td>${ROUTE_LABEL[x.route]}</td><td class="num price ${x.price === best ? "below" : ""}">${money(x.price)}</td>
+           <td>${esc(x.airline)}<div class="sub">${esc(x.depart_time)}${x.arrive_time ? "→" + esc(x.arrive_time) : ""} ${x.stops === 0 ? "直飛" : "轉 " + x.stops}</div></td>
+           <td><span class="tag ${x.cache ? "" : "live"}">${x.cache ? ago(x.checked_at) + "紀錄" : "即時"}</span></td>
+           <td><a href="${safeUrl(x.link)}" target="_blank" rel="noopener">訂票 ↗</a></td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+  return h;
+}
+const jobSort = {}, jobAll = {};
+document.addEventListener("change", e => { const c = e.target.closest("[data-all]"); if (c) { jobAll[c.dataset.all] = c.checked; if (c.dataset.all === activeSearch) pollSearch(); } });
+function bindCancel(el) {
+  $$("[data-cancel]", el).forEach(b => b.onclick = async () => { await api(`/api/jobs/${b.dataset.cancel}/cancel`, {}); toast("已取消"); });
+}
+
+// ---------------------------------------------------------------- 價格日曆
+function renderRouteSeg(el, value, onChange) {
+  el.innerHTML = Object.entries(ROUTE_LABEL).map(([k, v]) => `<button data-v="${k}" class="${k === value ? "on" : ""}">${v}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("button"); if (b) onChange(b.dataset.v); };
+}
+let CAL = {};
+function calThreshold(route, date) { const x = (CAL[route] || {})[date]; return x ? x.threshold : null; }
+async function loadCalendar() {
+  renderRouteSeg($("#calRoute"), calRoute, v => { calRoute = v; loadCalendar(); });
+  const data = await api("/api/calendar?route=" + calRoute);
+  CAL[calRoute] = data.dates;
+  const prices = Object.values(data.dates).map(x => x.min_price).filter(x => x != null).sort((a, b) => a - b);
+  const q = p => prices[Math.min(prices.length - 1, Math.floor(prices.length * p))];
+  const cuts = prices.length ? [q(0.2), q(0.4), q(0.6), q(0.8)] : [];
+  const level = p => { // 4 = 最便宜（最深）
+    if (p <= cuts[0]) return 4; if (p <= cuts[1]) return 3; if (p <= cuts[2]) return 2; if (p <= cuts[3]) return 1; return 0;
+  };
+  const watched = Object.values(data.dates).filter(x => x.threshold).length;
+  $("#calNote").textContent = `已知 ${prices.length} 天的價格${prices.length ? `，最低 ${money(prices[0])}、中位數 ${money(q(0.5))}` : ""}。${watched ? `虛線框是通知規則涵蓋、還沒查過的日期。` : "這個方向還沒有通知規則。"}點日期看詳情或即時查詢。`;
+
+  const start = new Date(data.today + "T00:00:00"), end = new Date(data.last_day + "T00:00:00");
+  let html = "";
+  for (let m = new Date(start.getFullYear(), start.getMonth(), 1); m <= end; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+    const first = (m.getDay() + 6) % 7, days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+    let cells = WD.map(w => `<div class="dow">${w}</div>`).join("") + `<div class="d empty"></div>`.repeat(first);
+    for (let i = 1; i <= days; i++) {
+      const ds = iso(new Date(m.getFullYear(), m.getMonth(), i));
+      const x = data.dates[ds];
+      const past = ds < data.today || ds > data.last_day;
+      let style = "", cls = "d", inner = `<span>${i}</span>`, title = ds + "（" + wd(ds) + "）";
+      if (past) cls += " past";
+      else if (x && x.min_price != null) {
+        const lv = level(x.min_price);
+        style = `background:var(--h${lv});color:var(--h${lv}t)`;
+        inner += `<span class="p">${(x.min_price / 1000).toFixed(1)}k</span>`;
+        if (x.threshold && x.min_price < x.threshold) inner += `<span class="star">★</span>`;
+        title += ` ${money(x.min_price)} ${x.airline} · ${ago(x.checked_at)}查`;
+      } else if (x && x.checked_at) { inner += `<span class="p">—</span>`; title += " 沒有航班"; }
+      else if (x && x.threshold) { cls += " watch"; title += " 尚未查價"; }
+      cells += `<div class="${cls}" style="${style}" title="${esc(title)}" ${past ? "" : `tabindex="0" data-date="${ds}"`}>${inner}</div>`;
+    }
+    html += `<div class="card month"><h3>${m.getFullYear()} 年 ${m.getMonth() + 1} 月</h3><div class="cal">${cells}</div></div>`;
+  }
+  $("#calMonths").innerHTML = html;
+}
+$("#calMonths").addEventListener("click", e => { const d = e.target.closest("[data-date]"); if (d) openDay(calRoute, d.dataset.date); });
+$("#calMonths").addEventListener("keydown", e => { const d = e.target.closest("[data-date]"); if (d && e.key === "Enter") openDay(calRoute, d.dataset.date); });
+
+let dayToken = 0;
+async function openDay(route, date, jobId, token) {
+  if (token === undefined) token = ++dayToken;  // 使用者新開一次
+  const data = await api(`/api/date?route=${route}&date=${date}`);
+  const thr = calThreshold(route, date);
+  let job = jobId ? await api("/api/jobs/" + jobId) : null;
+  if (token !== dayToken) return;  // 已關閉或改開別天，丟棄過期的回應
+  $("#drawerPanel").innerHTML = `<div class="row" style="justify-content:space-between;align-items:center">
+      <h2 style="margin:0">${ROUTE_LABEL[route]} · ${date}（${wd(date)}）</h2><button class="btn sm" id="dClose">關閉</button></div>
+    <p class="muted">${data.checked_at ? ago(data.checked_at) + "查的紀錄" : "還沒有這天的紀錄"}</p>
+    ${data.fares.length ? `<ul class="fares">${data.fares.map(f => fareLine(f, { threshold: thr })).join("")}</ul>` : data.checked_at ? `<p>這天沒有航班</p>` : ""}
+    ${job ? jobHtml(job, false) : ""}
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="dLive" ${job && (job.status === "queued" || job.status === "running") ? "disabled" : ""}>🔄 即時查詢這天</button></div>`;
+  $("#drawer").classList.add("on");
+  $("#dClose").onclick = closeDrawer;
+  bindCancel($("#drawerPanel"));
+  $("#dLive").onclick = async () => {
+    try {
+      const o = route.split("-");
+      const j = await api("/api/search", { legs: [{ origin: o[0], destination: o[1], date_from: date, date_to: date }], max_age_hours: 0 });
+      pollDay(route, date, j.id, token);
+    } catch (e) { toast(e.message); }
+  };
+  if (job && (job.status === "queued" || job.status === "running")) setTimeout(() => pollDay(route, date, jobId, token), 2500);
+  else if (job && $("#calendar").classList.contains("on")) loadCalendar();
+}
+function pollDay(route, date, jobId, token) { if (token === dayToken) openDay(route, date, jobId, token); }
+function closeDrawer() { dayToken++; $("#drawer").classList.remove("on"); }
+$("#drawer").addEventListener("click", e => { if (e.target.id === "drawer") closeDrawer(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+// ---------------------------------------------------------------- 即時查詢
+wdPicker($("#sWd"), "swd");
+let activeSearch = null;
+function searchLegs() {
+  const r = $("#sRoute").value, from = $("#sFrom").value, to = $("#sTo").value, weekdays = wdValues("swd");
+  const routes = r === "both" ? ["TPE-KIX", "KIX-TPE"] : [r];
+  return routes.map(x => ({ origin: x.split("-")[0], destination: x.split("-")[1], date_from: from, date_to: to, weekdays }));
+}
+function updateEstimate() {
+  const legs = searchLegs(); let n = 0;
+  for (const l of legs) for (let d = l.date_from; d && l.date_to && d <= l.date_to; d = addDays(d, 1)) if (!l.weekdays.length || l.weekdays.includes((new Date(d + "T00:00:00").getDay() + 6) % 7)) n++;
+  $("#sEst").textContent = n ? `共 ${n} 個日期，若全部重查約需 ${dur(n * 16)}（有近期紀錄的會直接沿用）` : "";
+}
+["#sRoute", "#sFrom", "#sTo"].forEach(s => $(s).addEventListener("change", updateEstimate));
+$("#sWd").addEventListener("change", updateEstimate);
+$("#sGo").onclick = async () => {
+  try {
+    const j = await api("/api/search", { legs: searchLegs(), max_age_hours: +$("#sAge").value });
+    activeSearch = j.id; pollSearch(); loadJobs();
+  } catch (e) { toast(e.message); }
+};
+let searchTimer = null;
+async function pollSearch() {
+  if (!activeSearch) return;
+  clearTimeout(searchTimer);  // 重新排序 / 篩選時不要產生多條輪詢
+  const id = activeSearch;
+  const j = await api("/api/jobs/" + id);
+  if (id !== activeSearch) return;
+  const box = $("#sJob"); box.classList.remove("hide");
+  box.innerHTML = jobHtml(j, true, +$("#sMax").value || null);
+  bindCancel(box);
+  if (j.status === "queued" || j.status === "running") searchTimer = setTimeout(pollSearch, 3000); else loadJobs();
+}
+$("#sMax").addEventListener("input", () => activeSearch && pollSearch());
+document.addEventListener("click", e => {
+  const th = e.target.closest("[data-sort]"); if (!th) return;
+  const [id, key] = th.dataset.sort.split(":"); jobSort[id] = key;
+  if (id === activeSearch) pollSearch();
+});
+async function loadJobs() {
+  const { jobs } = await api("/api/jobs");
+  const html = jobs.length ? jobs.map(j => `<li data-job="${j.id}" data-kind="${j.kind}"><span>${esc(j.label)}</span><span class="muted">${j.done}/${j.total} · ${{ queued: "排隊中", running: "查詢中", done: "完成", failed: "失敗", cancelled: "已取消" }[j.status]} · ${ago(j.created_at)}</span></li>`).join("") : `<li class="muted">還沒有查詢紀錄</li>`;
+  $("#sJobs").innerHTML = html; $("#sysJobs").innerHTML = html;
+}
+["#sJobs", "#sysJobs"].forEach(s => $(s).addEventListener("click", e => {
+  const li = e.target.closest("[data-job]"); if (!li) return;
+  activeSearch = li.dataset.job; showTab("search"); pollSearch(); window.scrollTo(0, 0);
+}));
+
+// ---------------------------------------------------------------- 來回組合
+let rtJob = null;
+async function calcRoundtrip() {
+  const p = new URLSearchParams({ outbound: $("#rOut").value, from: $("#rFrom").value, to: $("#rTo").value, min: $("#rMin").value, max: $("#rMax").value });
+  if ($("#rTotal").value) p.set("max_total", $("#rTotal").value);
+  try {
+    const d = await api("/api/roundtrip?" + p);
+    const out = $("#rOut").value, back = out.split("-").reverse().join("-");
+    $("#rNote").innerHTML = `回程日期區間：${d.inbound_range[0]} ~ ${d.inbound_range[1]}。` +
+      (d.missing_outbound || d.missing_inbound ? `<b>缺少資料：去程 ${d.missing_outbound} 天、回程 ${d.missing_inbound} 天</b>，結果可能不完整。` : "資料完整。");
+    $("#rResult").innerHTML = d.combos.length ? `<table><thead><tr><th class="num">來回總價</th><th>去程（${ROUTE_LABEL[out]}）</th><th>回程（${ROUTE_LABEL[back]}）</th><th class="num">停留</th></tr></thead><tbody>
+      ${d.combos.map(c => `<tr><td class="num price">${money(c.total)}</td>
+        <td>${fdate(c.outbound.date)} ${money(c.outbound.price)}<div class="sub">${esc(c.outbound.airline)} ${esc(c.outbound.depart_time)} · ${ago(c.outbound.checked_at)}查 · <a href="${safeUrl(c.outbound.link)}" target="_blank" rel="noopener">訂票 ↗</a></div></td>
+        <td>${fdate(c.inbound.date)} ${money(c.inbound.price)}<div class="sub">${esc(c.inbound.airline)} ${esc(c.inbound.depart_time)} · ${ago(c.inbound.checked_at)}查 · <a href="${safeUrl(c.inbound.link)}" target="_blank" rel="noopener">訂票 ↗</a></div></td>
+        <td class="num">${c.nights} 晚</td></tr>`).join("")}</tbody></table>`
+      : `<p class="muted">沒有找到組合（可能缺少資料或總價上限太低）。</p>`;
+    return d;
+  } catch (e) { toast(e.message); }
+}
+$("#rGo").onclick = calcRoundtrip;
+$("#rFetch").onclick = async () => {
+  const d = await calcRoundtrip(); if (!d) return;
+  const out = $("#rOut").value.split("-");
+  try {
+    const j = await api("/api/search", { legs: [
+      { origin: out[0], destination: out[1], date_from: $("#rFrom").value, date_to: $("#rTo").value },
+      { origin: out[1], destination: out[0], date_from: d.inbound_range[0], date_to: d.inbound_range[1] },
+    ], max_age_hours: 12 });
+    rtJob = j.id; pollRt();
+  } catch (e) { toast(e.message); }
+};
+async function pollRt() {
+  const j = await api("/api/jobs/" + rtJob);
+  const box = $("#rJob"); box.classList.remove("hide"); box.innerHTML = jobHtml(j, false); bindCancel(box);
+  if (j.status === "queued" || j.status === "running") { if (j.done % 3 === 0) calcRoundtrip(); setTimeout(pollRt, 3000); } else calcRoundtrip();
+}
+
+// ---------------------------------------------------------------- 通知規則
+async function loadRules() {
+  RULES = (await api("/api/rules")).rules;
+  if (!SYS) SYS = await api("/api/system");
+  $("#notifyOn").checked = !SYS.settings.paused;
+  $("#notifyLabel").textContent = SYS.settings.paused ? "通知暫停中" : "通知開啟";
+  $("#ruleList").innerHTML = RULES.length ? RULES.map(r => {
+    const range = r.date_to ? `${r.date_from || "明天"} ~ ${r.date_to}` : `${r.date_from ? r.date_from + " 起" : "明天起"}未來 ${r.rolling_days} 天（滾動）`;
+    return `<div class="rule ${r.enabled ? "" : "off"}">
+      <label class="switch"><input type="checkbox" data-toggle="${r.id}" ${r.enabled ? "checked" : ""}><span></span></label>
+      <div class="info"><b>${esc(r.name || "未命名")}</b> <span class="tag">${ROUTE_LABEL[r.origin + "-" + r.destination]}</span>
+        <div class="sub">低於 <b>${money(r.max_price)}</b> · ${esc(range)}${r.weekdays.length ? " · 只看週" + r.weekdays.map(w => WD[w]).join("、") : ""}</div></div>
+      <div class="row"><button class="btn sm" data-edit="${r.id}">編輯</button><button class="btn sm danger" data-del="${r.id}">刪除</button></div></div>`;
+  }).join("") : `<p class="muted">還沒有規則，背景不會掃描也不會通知。</p>`;
+  const ov = OV || await api("/api/overview");
+  const perDay = 24 / SYS.settings.scan_interval_hours * SYS.settings.dates_per_run;
+  $("#ruleCycle").textContent = ov.watch.targets ? `目前規則涵蓋 ${ov.watch.targets} 個日期，背景每天約查 ${Math.round(perDay)} 個，大約 ${(ov.watch.targets / perDay).toFixed(1)} 天輪完一遍（價格接近門檻的日期會更常重查）。` : "";
+}
+$("#ruleList").addEventListener("click", async e => {
+  const t = e.target;
+  if (t.dataset.toggle) {
+    const r = RULES.find(x => x.id === t.dataset.toggle);
+    await api("/api/rules", { ...r, enabled: t.checked }); toast(t.checked ? "已啟用" : "已停用"); loadRules();
+  } else if (t.dataset.edit) ruleForm(RULES.find(x => x.id === t.dataset.edit));
+  else if (t.dataset.del && confirm("確定刪除這條規則？")) { await api(`/api/rules/${t.dataset.del}/delete`, {}); toast("已刪除"); loadRules(); }
+});
+$("#ruleNew").onclick = () => ruleForm(null);
+function ruleForm(r) {
+  dayToken++;
+  r = r || { id: "", name: "", origin: "TPE", destination: "KIX", date_from: "", date_to: "", rolling_days: 120, max_price: 3500, weekdays: [], enabled: true };
+  const fixed = !!r.date_to;
+  $("#drawerPanel").innerHTML = `<h2 style="margin-top:0">${r.id ? "編輯" : "新增"}通知規則</h2>
+    <div style="display:grid;gap:12px">
+      <label class="f">名稱<input id="fName" value="${esc(r.name)}" placeholder="例：寒假去大阪"></label>
+      <label class="f">方向<select id="fRoute"><option value="TPE-KIX">桃園 → 大阪</option><option value="KIX-TPE">大阪 → 桃園</option></select></label>
+      <label class="f">低於多少錢通知（TWD，單程含稅）<input type="number" id="fPrice" value="${r.max_price}"></label>
+      <div><div class="seg" id="fMode"><button data-v="fixed" class="${fixed ? "on" : ""}">指定日期區間</button><button data-v="rolling" class="${fixed ? "" : "on"}">未來 N 天（滾動）</button></div></div>
+      <div class="row" id="fFixed"><label class="f">出發日（起）<input type="date" id="fFrom" value="${esc(r.date_from)}"></label><label class="f">出發日（迄）<input type="date" id="fTo" value="${esc(r.date_to)}"></label></div>
+      <div class="row" id="fRolling"><label class="f">未來幾天<input type="number" id="fDays" value="${r.rolling_days}" min="1" max="330"></label></div>
+      <div><div class="muted" style="margin-bottom:4px">只看星期（不勾 = 全部）</div><div class="wd" id="fWd"></div></div>
+      <label><input type="checkbox" id="fOn" ${r.enabled ? "checked" : ""}> 啟用</label>
+      <div class="row"><button class="btn primary" id="fSave">儲存</button><button class="btn" id="fCancel">取消</button></div>
+    </div>`;
+  $("#fRoute").value = r.origin + "-" + r.destination;
+  wdPicker($("#fWd"), "fwd"); r.weekdays.forEach(w => $(`input[name=fwd][value="${w}"]`).checked = true);
+  let mode = fixed ? "fixed" : "rolling";
+  const sync = () => { $("#fFixed").classList.toggle("hide", mode !== "fixed"); $("#fRolling").classList.toggle("hide", mode !== "rolling"); $$("#fMode button").forEach(b => b.classList.toggle("on", b.dataset.v === mode)); };
+  $("#fMode").onclick = e => { const b = e.target.closest("button"); if (b) { mode = b.dataset.v; sync(); } };
+  sync();
+  $("#drawer").classList.add("on");
+  $("#fCancel").onclick = closeDrawer;
+  $("#fSave").onclick = async () => {
+    const [o, d] = $("#fRoute").value.split("-");
+    const body = { id: r.id, name: $("#fName").value, origin: o, destination: d, max_price: +$("#fPrice").value, weekdays: wdValues("fwd"), enabled: $("#fOn").checked,
+      date_from: mode === "fixed" ? $("#fFrom").value : "", date_to: mode === "fixed" ? $("#fTo").value : "", rolling_days: +$("#fDays").value || 120 };
+    if (mode === "fixed" && (!body.date_from || !body.date_to)) return toast("請填寫起訖日期");
+    try { await api("/api/rules", body); closeDrawer(); toast("已儲存"); loadRules(); loadOverview(); } catch (e) { toast(e.message); }
+  };
+}
+$("#notifyOn").onchange = async e => {
+  SYS = await api("/api/system", { paused: !e.target.checked });
+  toast(e.target.checked ? "通知已開啟" : "通知已暫停（背景仍會掃描）"); loadRules(); loadOverview();
+};
+$("#tgTest").onclick = async () => { try { await api("/api/telegram/test", {}); toast("已送出，請看 Telegram"); } catch (e) { toast(e.message); } };
+
+// ---------------------------------------------------------------- 系統
+async function loadSystem() {
+  SYS = await api("/api/system");
+  $("#cmdInstall").textContent = SYS.install_cmd;
+  $("#cmdUpdate").textContent = SYS.update_cmd;
+  $("#sysVer").textContent = SYS.version || "未知";
+  $("#cfgPerRun").value = SYS.settings.dates_per_run;
+  $("#cfgInterval").value = SYS.settings.scan_interval_hours;
+  estCfg(); loadJobs();
+}
+function estCfg() {
+  const per = +$("#cfgPerRun").value, iv = +$("#cfgInterval").value;
+  if (per && iv) $("#cfgEst").textContent = `背景每天約 ${Math.round(24 / iv * per)} 個請求。`;
+}
+["#cfgPerRun", "#cfgInterval"].forEach(s => $(s).addEventListener("input", estCfg));
+$("#cfgSave").onclick = async () => {
+  try { SYS = await api("/api/system", { dates_per_run: +$("#cfgPerRun").value, scan_interval_hours: +$("#cfgInterval").value }); toast("已儲存（下一輪掃描起生效）"); } catch (e) { toast(e.message); }
+};
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-copy]"); if (!b) return;
+  const text = $("#" + b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); toast("已複製"); }
+  catch { const r = document.createRange(); r.selectNodeContents($("#" + b.dataset.copy)); getSelection().removeAllRanges(); getSelection().addRange(r); toast("請按 Ctrl/Cmd+C 複製"); }
+});
+
+// ---------------------------------------------------------------- 初始化
+(function init() {
+  const today = iso(new Date());
+  $("#sFrom").value = addDays(today, 7); $("#sTo").value = addDays(today, 37);
+  $("#rFrom").value = addDays(today, 14); $("#rTo").value = addDays(today, 44);
+  updateEstimate();
+  const tab = location.hash.slice(1);
+  if (tab && $("#" + tab)) showTab(tab);
+  const tick = () => loadOverview().finally(() => setTimeout(tick, OV && OV.current_job ? 4000 : 20000));
+  api("/api/rules").then(d => { RULES = d.rules; }).catch(() => {}).finally(tick);
+})();
+</script>
+</body>
+</html>

@@ -6,10 +6,14 @@ import pytest
 
 from ticket_watch.config import Config
 from ticket_watch.google_flights import BlockedError, parse_fares
-from ticket_watch.main import TAIPEI, new_deals_for_date, pick_dates, run, window_dates
 from ticket_watch.models import Fare
+from ticket_watch.rules import Rule, Settings
+from ticket_watch.scanner import new_deals, pick_targets, scan_round, watch_targets
 from ticket_watch.state import State
 from ticket_watch.travelpayouts import months_between
+
+NOW = datetime(2026, 10, 11, 2, 0, tzinfo=timezone.utc)  # 台北 10:00
+TODAY = date(2026, 10, 11)
 
 
 # ---------------------------------------------------------------- helpers
@@ -39,8 +43,9 @@ def page(best=None, other=None):
     return f'<html><body><script class="ds:1">{js}</script></body></html>'
 
 
-def fare(d, price, airline="台灣虎航", dep="07:00"):
-    return Fare(d, price, airline, dep, "10:30", 0, "google", "https://x")
+def fare(d, price, airline="台灣虎航", dep="07:00", route="TPE-KIX"):
+    o, _, dst = route.partition("-")
+    return Fare(d, price, airline, dep, "10:30", 0, "google", "https://x", o, dst)
 
 
 class FakeTG:
@@ -48,18 +53,26 @@ class FakeTG:
         self.sent = []
         self.ok = ok
 
-    def send(self, text):
+    def send(self, text, reply_markup=None):
         self.sent.append(text)
         return self.ok
 
 
-NOW = datetime(2026, 10, 11, 2, 0, tzinfo=timezone.utc)  # 台北 10:00
-
-
 def cfg(**kw):
-    base = dict(dates_per_run=5, days_ahead_max=30, summary_hour=-1)
+    base = dict(summary_hour=-1)
     base.update(kw)
     return Config(**base)
+
+
+def rule(route="TPE-KIX", **kw):
+    o, _, d = route.partition("-")
+    base = dict(id="r1", origin=o, destination=d, rolling_days=30, max_price=3500)
+    base.update(kw)
+    return Rule(**base)
+
+
+def scan(state, search, tg=None, rules=None, n=5, **kw):
+    return scan_round(cfg(), state, rules or [rule()], n, search, tg or FakeTG(), NOW, **kw)
 
 
 # ---------------------------------------------------------------- parser
@@ -70,15 +83,15 @@ def test_parse_merges_best_and_other_sections():
         best=[item(3299, "IT", [segment([7], [10, 30])])],
         other=[
             item(4100, "MM", [segment([None, 45], [4, 15])]),
-            item(3299, "IT", [segment([7], [10, 30])]),  # 重複出現
+            item(3299, "IT", [segment([7], [10, 30])]),
         ],
     )
-    fares = parse_fares(html, date="2026-11-18", link="L")
+    fares = parse_fares(html, date="2026-11-18", link="L", origin="KIX", destination="TPE")
     assert [(f.price, f.airline, f.depart_time, f.arrive_time) for f in fares] == [
         (3299, "台灣虎航", "07:00", "10:30"),
         (4100, "樂桃航空", "00:45", "04:15"),
     ]
-    assert all(f.stops == 0 and f.link == "L" for f in fares)
+    assert all(f.route == "KIX-TPE" and f.link == "L" for f in fares)
 
 
 def test_parse_counts_stops():
@@ -87,173 +100,224 @@ def test_parse_counts_stops():
     assert f.stops == 1 and f.arrive_time == "13:00"
 
 
-def test_parse_empty_results():
+def test_parse_empty_and_blocked():
     assert parse_fares(page(), date="2026-11-18", link="L") == []
-
-
-def test_parse_consent_page_is_blocked():
     with pytest.raises(BlockedError):
         parse_fares("<html>Before you continue to Google</html>", date="2026-11-18", link="L")
 
 
-# ---------------------------------------------------------------- scheduling
+# ---------------------------------------------------------------- rules
 
 
-def test_pick_dates_prefers_unchecked_then_stale_and_priority():
-    c = cfg(dates_per_run=3)
-    today = NOW.astimezone(TAIPEI).date()
-    cands = window_dates(today, c)
-    state = State()
-    for d in cands:
-        state.dates[d] = {"checked_at": NOW.isoformat(), "min_price": 9000}
-    old = cands[10]
-    state.dates[old]["checked_at"] = (NOW - timedelta(hours=10)).isoformat()
-    del state.dates[cands[20]]  # 從未查過
+def test_rule_window_rolling_and_fixed():
+    r = rule(rolling_days=10)
+    assert r.window(TODAY) == (date(2026, 10, 12), date(2026, 10, 21))
+    r = rule(date_from="2026-12-20", date_to="2027-01-05")
+    assert r.window(TODAY) == (date(2026, 12, 20), date(2027, 1, 5))
+    assert rule(date_from="2026-01-01", date_to="2026-02-01").window(TODAY) is None  # 已過期
+    assert rule(date_from="2026-12-01", date_to="2028-01-01").window(TODAY)[1] == TODAY + timedelta(days=330)
 
-    got = pick_dates(state, cands, NOW, c, priority=[cands[5], "1999-01-01"], rng=random.Random(1))
-    assert set(got) == {cands[5], cands[20], old}
+
+def test_rule_matches_route_price_weekday():
+    r = rule(date_from="2026-11-01", date_to="2026-11-30", weekdays=[4, 5])  # 週五六
+    assert r.matches(fare("2026-11-20", 3400), TODAY)  # 週五
+    assert not r.matches(fare("2026-11-18", 3400), TODAY)  # 週三
+    assert not r.matches(fare("2026-11-20", 3500), TODAY)  # 不低於門檻
+    assert not r.matches(fare("2026-11-20", 3000, route="KIX-TPE"), TODAY)  # 方向不同
+    assert not r.matches(fare("2026-12-04", 3000), TODAY)  # 區間外
+
+
+def test_rule_validation():
+    with pytest.raises(ValueError):
+        Rule.from_dict({"origin": "TPE", "destination": "NRT"}).validate()
+    with pytest.raises(ValueError):
+        Rule.from_dict({"date_from": "2026-12-01", "date_to": "2026-11-01"}).validate()
+    with pytest.raises(ValueError):
+        Rule.from_dict({"max_price": 10}).validate()
+
+
+def test_settings_persist_and_migrate_old_bot_settings(tmp_path):
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"max_price": 4200, "paused": True}))  # 舊版 bot 格式
+    s = Settings(str(p))
+    assert s.paused and len(s.rules) == 1 and s.rules[0].max_price == 4200
+    r = s.upsert_rule({"origin": "KIX", "destination": "TPE", "max_price": 3000, "name": "回程"})
+    assert r.id and len(Settings(str(p)).rules) == 2
+    s.upsert_rule({**r.__dict__, "max_price": 2800})
+    assert [x.max_price for x in Settings(str(p)).rules] == [4200, 2800]
+    assert s.delete_rule(r.id) and len(Settings(str(p)).rules) == 1
+    fresh = Settings(str(tmp_path / "none.json"), default_max_price=3500)
+    assert fresh.rules[0].route == "TPE-KIX" and fresh.rules[0].max_price == 3500
+
+
+# ---------------------------------------------------------------- 排程
+
+
+def test_watch_targets_union_with_loosest_threshold():
+    rules = [
+        rule(date_from="2026-11-01", date_to="2026-11-03", max_price=3000),
+        rule(id="r2", date_from="2026-11-03", date_to="2026-11-04", max_price=4000),
+        rule(id="r3", route="KIX-TPE", date_from="2026-11-05", date_to="2026-11-05"),
+    ]
+    t = watch_targets(rules, TODAY)
+    assert t == {
+        ("TPE-KIX", "2026-11-01"): 3000,
+        ("TPE-KIX", "2026-11-02"): 3000,
+        ("TPE-KIX", "2026-11-03"): 4000,
+        ("TPE-KIX", "2026-11-04"): 4000,
+        ("KIX-TPE", "2026-11-05"): 3500,
+    }
+
+
+def test_pick_targets_prefers_unchecked_stale_and_priority():
+    targets = {("TPE-KIX", f"2026-11-{i:02d}"): 3500 for i in range(1, 21)}
+    st = State()
+    for r, d in targets:
+        st.record(r, d, [fare(d, 9000)], NOW)
+    st.dates["TPE-KIX|2026-11-10"]["checked_at"] = (NOW - timedelta(hours=10)).isoformat()
+    del st.dates["TPE-KIX|2026-11-15"]
+    got = pick_targets(st, targets, NOW, 3, 1.3, priority=[("TPE-KIX", "2026-11-05"), ("X", "y")], rng=random.Random(1))
+    assert set(got) == {("TPE-KIX", "2026-11-05"), ("TPE-KIX", "2026-11-15"), ("TPE-KIX", "2026-11-10")}
 
 
 def test_hot_dates_expire_faster():
-    c = cfg(dates_per_run=1)
-    cands = ["2026-11-01", "2026-11-02"]
-    state = State(
-        dates={
-            "2026-11-01": {"checked_at": (NOW - timedelta(hours=5)).isoformat(), "min_price": 9000},
-            "2026-11-02": {"checked_at": (NOW - timedelta(hours=3)).isoformat(), "min_price": 3800},
-        }
-    )
-    assert pick_dates(state, cands, NOW, c, rng=random.Random(0)) == ["2026-11-02"]
+    targets = {("TPE-KIX", "2026-11-01"): 3500, ("TPE-KIX", "2026-11-02"): 3500}
+    st = State()
+    st.record("TPE-KIX", "2026-11-01", [fare("2026-11-01", 9000)], NOW - timedelta(hours=5))
+    st.record("TPE-KIX", "2026-11-02", [fare("2026-11-02", 3800)], NOW - timedelta(hours=3))
+    assert pick_targets(st, targets, NOW, 1, 1.3, rng=random.Random(0)) == [("TPE-KIX", "2026-11-02")]
 
 
-# ---------------------------------------------------------------- dedup
+# ---------------------------------------------------------------- 通知判斷
 
 
-def test_dedup_and_renotify_on_lower_price_or_redrop():
-    s = State()
-    d = "2026-11-18"
-    assert len(new_deals_for_date(s, d, [fare(d, 3400), fare(d, 3600, dep="12:00")], 3500)) == 1
+def test_dedup_and_renotify():
+    s, d, rules = State(), "2026-10-20", [rule()]
+    assert len(new_deals(s, "TPE-KIX", d, [fare(d, 3400), fare(d, 3600, dep="12:00")], rules, TODAY)) == 1
     s.notified[fare(d, 3400).key] = 3400
-    assert new_deals_for_date(s, d, [fare(d, 3400)], 3500) == []  # 同價不重複
-    assert len(new_deals_for_date(s, d, [fare(d, 3200)], 3500)) == 1  # 更便宜再通知
-    assert new_deals_for_date(s, d, [fare(d, 3900)], 3500) == []  # 回漲 → 移除紀錄
+    assert new_deals(s, "TPE-KIX", d, [fare(d, 3400)], rules, TODAY) == []
+    assert len(new_deals(s, "TPE-KIX", d, [fare(d, 3200)], rules, TODAY)) == 1
+    assert new_deals(s, "TPE-KIX", d, [fare(d, 3900)], rules, TODAY) == []
     assert s.notified == {}
-    assert len(new_deals_for_date(s, d, [fare(d, 3400)], 3500)) == 1  # 再降 → 再通知
 
 
-def test_threshold_is_strictly_below():
-    assert new_deals_for_date(State(), "2026-11-18", [fare("2026-11-18", 3500)], 3500) == []
+def test_scan_notifies_both_routes_in_one_message():
+    rules = [rule(rolling_days=3), rule(id="r2", route="KIX-TPE", rolling_days=3, max_price=4000)]
 
-
-# ---------------------------------------------------------------- run()
-
-
-def test_run_notifies_once_and_records_state():
-    c = cfg(dates_per_run=30)  # 一輪掃完整個視窗
-    cheap = "2026-10-20"
-
-    def search(d):
-        return [fare(d, 3100)] if d == cheap else [fare(d, 4500)]
+    def search(o, dst, d):
+        return [fare(d, 3800 if o == "KIX" else 3600, route=f"{o}-{dst}")]
 
     tg = FakeTG()
-    sleeps = []
-    s = run(c, State(), search, tg, NOW, sleep=sleeps.append, rng=random.Random(2))
-    assert len(tg.sent) == 1 and "3,100" in tg.sent[0] and "2026-10-20（二）" in tg.sent[0]
-    assert len(s.dates) == 30 and len(sleeps) == 29
-    assert all(c.delay_min <= x <= c.delay_max for x in sleeps)
-
-    # 下一輪同樣價格 → 不重複通知
-    run(c, s, search, tg, NOW, sleep=lambda _: None)
-    assert len(tg.sent) == 1
+    st = State()
+    stats = scan(st, search, tg, rules=rules, n=10)
+    assert stats["checked"] == 6 and len(tg.sent) == 1
+    assert "【大阪關西 → 桃園】" in tg.sent[0] and "【桃園 → 大阪關西】" not in tg.sent[0]
+    assert len(st.notified) == 3 and st.last_scan_at == NOW.isoformat()
+    scan(st, search, tg, rules=rules, n=10)
+    assert len(tg.sent) == 1  # 不重複
 
 
-def test_run_does_not_mark_notified_when_send_fails():
-    c = cfg(dates_per_run=1)
-    s = run(c, State(), lambda d: [fare(d, 3000)], FakeTG(ok=False), NOW, sleep=lambda _: None)
-    assert s.notified == {}
+def test_scan_without_rules_does_nothing():
+    calls = []
+    stats = scan_round(cfg(), State(), [], 5, lambda *a: calls.append(a) or [], FakeTG(), NOW)
+    assert stats["planned"] == 0 and calls == []
 
 
-def test_run_stops_after_consecutive_errors_and_warns_once():
-    c = cfg(dates_per_run=6, max_consecutive_errors=2, block_alert_after=2)
+def test_scan_send_failure_not_marked():
+    st = State()
+    scan(st, lambda o, dst, d: [fare(d, 3000)], FakeTG(ok=False), n=1)
+    assert st.notified == {}
+
+
+def test_scan_stops_on_errors_and_warns_once():
+    c = cfg(max_consecutive_errors=2, block_alert_after=2)
     calls = []
 
-    def search(d):
+    def search(o, dst, d):
         calls.append(d)
         raise BlockedError("flight data block not found")
 
-    tg = FakeTG()
-    s = run(c, State(), search, tg, NOW, sleep=lambda _: None)
-    assert len(calls) == 2 and s.fail_streak == 1 and tg.sent == []
-    s = run(c, s, search, tg, NOW, sleep=lambda _: None)
-    assert s.fail_streak == 2 and s.block_warned and len(tg.sent) == 1
-    run(c, s, search, tg, NOW, sleep=lambda _: None)
-    assert len(tg.sent) == 1  # 不重複警告
-    s = run(c, s, lambda d: [], tg, NOW, sleep=lambda _: None)
-    assert s.fail_streak == 0 and not s.block_warned and "恢復" in tg.sent[-1]
+    tg, st = FakeTG(), State()
+    scan_round(c, st, [rule()], 6, search, tg, NOW)
+    assert len(calls) == 2 and st.fail_streak == 1 and tg.sent == []
+    scan_round(c, st, [rule()], 6, search, tg, NOW)
+    assert st.block_warned and len(tg.sent) == 1
+    scan_round(c, st, [rule()], 6, search, tg, NOW)
+    assert len(tg.sent) == 1
+    scan_round(c, st, [rule()], 6, lambda *a: [], tg, NOW)
+    assert st.fail_streak == 0 and "恢復" in tg.sent[-1]
 
 
-def test_run_stops_immediately_on_429():
+def test_scan_stops_immediately_on_429():
     calls = []
 
-    def search(d):
+    def search(o, dst, d):
         calls.append(d)
         raise BlockedError("HTTP 429")
 
-    run(cfg(), State(), search, FakeTG(), NOW, sleep=lambda _: None)
+    scan(State(), search)
     assert len(calls) == 1
 
 
-def test_travelpayouts_dates_get_priority_and_fallback_alert():
-    c = cfg(dates_per_run=1)
-    tp = [Fare("2026-10-25", 3000, "IT", "07:00", "", 0, "travelpayouts", "https://a")]
+def test_travelpayouts_priority_and_fallback():
+    tp = [Fare("2026-10-25", 3000, "IT", "07:00", "", 0, "travelpayouts", "https://a", "TPE", "KIX")]
     checked = []
 
-    def search(d):
+    def search(o, dst, d):
         checked.append(d)
         return [fare(d, 3300)]
 
     tg = FakeTG()
-    s = run(c, State(), search, tg, NOW, tp_fetch=lambda a, b: tp, sleep=lambda _: None)
-    assert checked == ["2026-10-25"]
-    # Google 已驗證該日期 → 以 Google 結果為準，不發快取價格
-    assert "3,300" in tg.sent[0] and "快取" not in tg.sent[0]
+    scan(State(), search, tg, n=1, tp_fetch=lambda *a: tp)
+    assert checked == ["2026-10-25"] and "3,300" in tg.sent[0] and "快取" not in tg.sent[0]
 
-    # Google 失敗時 → 退而通知快取價格
-    def broken(d):
+    def broken(o, dst, d):
         raise BlockedError("HTTP 429")
 
     tg = FakeTG()
-    run(c, State(), broken, tg, NOW, tp_fetch=lambda a, b: tp, sleep=lambda _: None)
+    scan(State(), broken, tg, n=1, tp_fetch=lambda *a: tp)
     assert "3,000" in tg.sent[0] and "快取" in tg.sent[0]
 
 
 def test_daily_summary_once_per_day():
-    c = cfg(summary_hour=9, dates_per_run=2)
-    tg = FakeTG()
-    s = run(c, State(), lambda d: [fare(d, 5000)], tg, NOW, sleep=lambda _: None)
+    tg, st = FakeTG(), State()
+    c = cfg(summary_hour=9)
+    scan_round(c, st, [rule()], 2, lambda o, dst, d: [fare(d, 5000)], tg, NOW)
     assert len(tg.sent) == 1 and "每日摘要" in tg.sent[0]
-    run(c, s, lambda d: [fare(d, 5000)], tg, NOW, sleep=lambda _: None)
+    scan_round(c, st, [rule()], 2, lambda o, dst, d: [fare(d, 5000)], tg, NOW)
     assert len(tg.sent) == 1
 
 
-def test_state_roundtrip_and_prune(tmp_path):
-    p = str(tmp_path / "s" / "state.json")
-    s = State(
-        dates={"2026-10-01": {}, "2026-12-01": {"min_price": 1}},
-        notified={"2026-10-01|a|b": 1, "2026-12-01|a|b": 2},
+# ---------------------------------------------------------------- state
+
+
+def test_state_roundtrip_prune_and_legacy_migration(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text(
+        json.dumps(
+            {
+                "dates": {"2026-10-01": {}, "2026-12-01": {"min_price": 1, "checked_at": "x", "fares": []}},
+                "notified": {"2026-10-01|a|b": 1, "2026-12-01|a|b": 2},
+            }
+        )
     )
+    s = State.load(str(p))
+    assert set(s.dates) == {"TPE-KIX|2026-10-01", "TPE-KIX|2026-12-01"}
+    assert set(s.notified) == {"TPE-KIX|2026-10-01|a|b", "TPE-KIX|2026-12-01|a|b"}
     s.prune("2026-10-11")
-    s.save(p)
-    s2 = State.load(p)
-    assert s2.dates == {"2026-12-01": {"min_price": 1}}
-    assert s2.notified == {"2026-12-01|a|b": 2}
+    s.save(str(p))
+    s2 = State.load(str(p))
+    assert list(s2.dates) == ["TPE-KIX|2026-12-01"] and list(s2.notified) == ["TPE-KIX|2026-12-01|a|b"]
     assert State.load(str(tmp_path / "missing.json")).dates == {}
 
 
+def test_state_known_fares():
+    s = State()
+    s.record("TPE-KIX", "2026-11-01", [fare("2026-11-01", 4000), fare("2026-11-01", 3000, dep="20:00")], NOW)
+    s.record("KIX-TPE", "2026-11-01", [fare("2026-11-01", 1000, route="KIX-TPE")], NOW)
+    got = s.known_fares("TPE-KIX", "2026-10-01", "2026-12-31")
+    assert [f.price for f, _ in got] == [3000, 4000] and got[0][0].route == "TPE-KIX"
+
+
 def test_months_between():
-    assert months_between(date(2026, 11, 20), date(2027, 2, 1)) == [
-        "2026-11",
-        "2026-12",
-        "2027-01",
-        "2027-02",
-    ]
+    assert months_between(date(2026, 11, 20), date(2027, 2, 1)) == ["2026-11", "2026-12", "2027-01", "2027-02"]

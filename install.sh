@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 安裝 / 更新（同一支腳本，重複執行安全）：
-#   下載最新程式 → 安裝套件 → 寫設定 → 設 cron 看門狗 → （重新）啟動 Telegram bot
+#   下載最新程式 → 安裝套件 → 寫設定 → 設 cron 看門狗 → （重新）啟動網站與背景掃描
 #
 # 第一次安裝：
 #   curl -fsSL https://raw.githubusercontent.com/jim890906abc/airline_ticket/claude/airline-ticket-notifier-5i70uz/install.sh | TELEGRAM_BOT_TOKEN=xxx bash
 # 之後更新：
 #   cd ~/airline_ticket && git fetch -q origin claude/airline-ticket-notifier-5i70uz && git reset -q --hard FETCH_HEAD && bash install.sh
 #
-# 可選環境變數：TELEGRAM_CHAT_ID、TRAVELPAYOUTS_TOKEN、MAX_PRICE、INSTALL_DIR
+# 可選環境變數：TELEGRAM_CHAT_ID、TRAVELPAYOUTS_TOKEN、MAX_PRICE、WEB_PORT、WEB_PASSWORD、INSTALL_DIR
 set -euo pipefail
 
 REPO="https://github.com/jim890906abc/airline_ticket.git"
@@ -30,6 +30,10 @@ TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-$(env_get TELEGRAM_CHAT_ID)}"
 TRAVELPAYOUTS_TOKEN="${TRAVELPAYOUTS_TOKEN:-$(env_get TRAVELPAYOUTS_TOKEN)}"
 MAX_PRICE="${MAX_PRICE:-$(env_get MAX_PRICE)}"
 MAX_PRICE="${MAX_PRICE:-3500}"
+WEB_PORT="${WEB_PORT:-$(env_get WEB_PORT)}"
+WEB_PORT="${WEB_PORT:-8787}"
+WEB_PASSWORD="${WEB_PASSWORD:-$(env_get WEB_PASSWORD)}"
+WEB_PASSWORD="${WEB_PASSWORD:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(9))')}"
 [ -n "$TELEGRAM_BOT_TOKEN" ] || die "請設定 TELEGRAM_BOT_TOKEN，例如：curl ... | TELEGRAM_BOT_TOKEN=xxx bash"
 
 echo "📥 取得最新程式 → $DIR"
@@ -62,6 +66,8 @@ TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID
 TRAVELPAYOUTS_TOKEN=$TRAVELPAYOUTS_TOKEN
 MAX_PRICE=$MAX_PRICE
+WEB_PORT=$WEB_PORT
+WEB_PASSWORD=$WEB_PASSWORD
 EOF
 umask 022
 
@@ -78,31 +84,47 @@ if [ "$FIRST_INSTALL" = 1 ]; then
   ./run.sh --test-telegram || die "Telegram 測試失敗，請檢查 token"
 fi
 
-echo "⏰ 設定 cron 看門狗（每 5 分鐘確認 bot 活著，掛掉或重開機會自動拉起）"
+echo "⏰ 設定 cron 看門狗（每 5 分鐘確認服務活著，掛掉或重開機會自動拉起）"
 ( crontab -l 2>/dev/null | grep -vF "$DIR/run.sh" || true
-  echo "*/5 * * * * $DIR/run.sh bot >> $DIR/bot.log 2>&1" ) | crontab -
+  echo "*/5 * * * * $DIR/run.sh serve >> $DIR/service.log 2>&1" ) | crontab -
 
-# 停掉舊的 bot（更新時），再啟動新版
+# 停掉舊的服務（更新時），再啟動新版
 if [ -f state/bot.lock ]; then
   OLD_PID="$(cat state/bot.lock 2>/dev/null || true)"
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null && ps -p "$OLD_PID" -o args= | grep -q ticket_watch; then
-    echo "🔁 停止舊版 bot（pid $OLD_PID）"
+    echo "🔁 停止舊版服務（pid $OLD_PID）"
     kill "$OLD_PID" 2>/dev/null || true
     for _ in $(seq 1 20); do kill -0 "$OLD_PID" 2>/dev/null || break; sleep 0.5; done
     kill -9 "$OLD_PID" 2>/dev/null || true
   fi
 fi
-echo "🚀 啟動 bot（紀錄：$DIR/bot.log）"
-nohup ./run.sh bot >> bot.log 2>&1 &
-sleep 3
-kill -0 $! 2>/dev/null || { tail -20 bot.log; die "bot 啟動失敗，請看上面的紀錄"; }
+echo "🚀 啟動網站與背景掃描（紀錄：$DIR/service.log）"
+nohup ./run.sh serve >> service.log 2>&1 &
+PID=$!
+OK=0
+for _ in $(seq 1 20); do
+  sleep 1
+  kill -0 "$PID" 2>/dev/null || break
+  if command -v curl >/dev/null; then
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -u "admin:$WEB_PASSWORD" "http://127.0.0.1:$WEB_PORT/api/overview" || true)"
+    [ "$CODE" = 200 ] && { OK=1; break; }
+  else
+    OK=1; break
+  fi
+done
+[ "$OK" = 1 ] || { tail -20 service.log; die "服務啟動失敗，請看上面的紀錄"; }
+LAN_IP="$(.venv/bin/python -c 'from ticket_watch.main import lan_ip; print(lan_ip())' 2>/dev/null || echo 127.0.0.1)"
 
 cat <<EOF
 
-✅ 完成！到 Telegram 對 bot 傳 /start 就會出現按鈕選單。
-   每 3 小時自動掃描 TPE → KIX，低於 NT\$$MAX_PRICE 會通知你（門檻可在 bot 裡用按鈕改）。
+✅ 完成！打開網站設定要通知的日期區間與價格：
 
-   看紀錄：tail -f $DIR/bot.log
+   🌐 本機：      http://127.0.0.1:$WEB_PORT
+   🌐 同網路手機：http://$LAN_IP:$WEB_PORT
+   🔑 帳號隨便填，密碼：$WEB_PASSWORD   （存在 $DIR/.env）
+
+   Telegram 只負責接收低價通知。
+   看紀錄：tail -f $DIR/service.log
    更新：  cd $DIR && git fetch -q origin $BRANCH && git reset -q --hard FETCH_HEAD && bash install.sh
    移除：  crontab -l | grep -vF "$DIR/run.sh" | crontab - ; kill \$(cat $DIR/state/bot.lock) ; rm -rf "$DIR"
 EOF

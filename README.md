@@ -1,9 +1,11 @@
-# 桃園 → 大阪 低價機票 Telegram Bot
+# 桃園 ⇄ 大阪 機票監控（網站 + Telegram 通知）
 
-監控 **桃園機場 (TPE) → 大阪關西機場 (KIX)** 單程機票：出現 **低於 NT$3,500（含稅）** 的班機就發 Telegram 通知，
-也可以在 bot 裡用按鈕隨時查詢最便宜的機票。
+在自己電腦上架一個網站，監控 **桃園 (TPE) ⇄ 大阪關西 (KIX)** 雙向單程機票：
 
-> 大阪有兩個機場，但伊丹 (ITM) 只飛日本國內線，從桃園出發的國際線都降關西 (KIX)，所以只查 KIX。
+- 🌐 **網站**：即時查詢日期區間的最低價、價格日曆、來回組合、設定通知規則
+- 📨 **Telegram**：只負責接收「符合你設定的日期區間與價格」的低價通知
+
+> 大阪的伊丹機場 (ITM) 只飛日本國內線，從桃園出發的國際線都降關西 (KIX)，所以只查 KIX。
 
 ## 安裝（一行指令）
 
@@ -13,7 +15,8 @@ Mac / Linux / WSL，需要 Python 3.10+、git、cron。先在 Telegram 對 bot �
 curl -fsSL https://raw.githubusercontent.com/jim890906abc/airline_ticket/claude/airline-ticket-notifier-5i70uz/install.sh | TELEGRAM_BOT_TOKEN=你的token bash
 ```
 
-會自動：下載程式到 `~/airline_ticket` → 安裝套件 → 找出 chat id → 發測試訊息 → 設 cron 看門狗 → 啟動 bot。
+會自動：下載到 `~/airline_ticket` → 安裝套件 → 找出 chat id → 發測試訊息 → 設 cron 看門狗 → 啟動網站。
+最後會印出網址（例如 `http://192.168.1.23:8787`）和網站密碼，同一個 Wi-Fi 下的手機也能開。
 
 ## 更新（一行指令）
 
@@ -21,44 +24,43 @@ curl -fsSL https://raw.githubusercontent.com/jim890906abc/airline_ticket/claude/
 cd ~/airline_ticket && git fetch -q origin claude/airline-ticket-notifier-5i70uz && git reset -q --hard FETCH_HEAD && bash install.sh
 ```
 
-直接對齊 GitHub 上的最新版本（不 merge，所以不會有衝突），沿用原本的 token / chat id / 價格紀錄 / 門檻設定，並自動重啟 bot。
+直接對齊 GitHub 上的最新版本（不 merge，所以不會有衝突），保留 token、網站密碼、通知規則、價格紀錄，並自動重啟服務。
+網站「安裝 / 系統」分頁也有這兩行指令可以一鍵複製。
 
-## Bot 按鈕
+## 網站功能
 
-傳 `/start` 或 `/menu` 會出現常駐按鈕：
-
-| 按鈕 | 功能 |
+| 分頁 | 功能 |
 | --- | --- |
-| 🔥 最便宜5張 | 列出目前已知最便宜的 5 張機票（日期、價格、航空、時間、連結），下方有「🔄 即時重查這幾天」 |
-| 📆 各月最低價 | 每個月最便宜的一天，看哪個月最划算 |
-| 📅 查指定日期 | 輸入 `11/18` 或 `2026-11-18`，即時查那一天的所有航班（也可以直接打日期） |
-| 🔍 立即掃描 | 馬上掃一輪（20 分鐘內只能按一次，避免被封） |
-| 💰 設定門檻 | 3000 / 3500 / 4000 / 4500 / 5000 或自訂金額 |
-| ⏸ 暫停通知 / ▶️ 恢復通知 | 暫停時仍會在背景掃描，恢復後還有效的低價會補通知 |
-| ℹ️ 狀態 | 門檻、掃描進度、上次/下次掃描時間、是否被限流 |
+| 總覽 | 兩個方向各自目前已知最便宜 10 張、掃描狀態、立即掃描、目前進行中的查詢進度 |
+| 價格日曆 | 未來 330 天每天最低價的色塊月曆（越深越便宜，★ = 低於通知門檻），點日期看當天所有航班或即時查詢 |
+| 即時查詢 | 選方向（去 / 回 / 雙向）、日期區間、星期，背景逐日查 Google Flights，進度與結果即時顯示；可沿用幾小時內的紀錄省下請求 |
+| 來回組合 | 兩張單程自由搭配：指定去程區間與停留天數，算出最便宜的來回組合；缺資料時一鍵補查 |
+| 通知設定 | 新增多條規則：方向、指定日期區間或「未來 N 天」、低於多少錢、只看星期幾；一鍵暫停 / 恢復、發測試訊息 |
+| 安裝 / 系統 | 安裝 / 更新指令、目前版本、背景掃描頻率設定、最近的工作 |
 
-只會回應你自己的 chat id，其他人傳訊息給 bot 不會有反應。
+網站預設綁在 `0.0.0.0:8787`，用 HTTP Basic 密碼保護（帳號隨便填，密碼在 `~/airline_ticket/.env` 的 `WEB_PASSWORD`）。
+不要把這個 port 開到網際網路上；在外面要看，建議用 Tailscale 之類的 VPN。
 
 ## 怎麼抓才有效又不會被 ban
 
 | 做法 | 說明 |
 | --- | --- |
-| **用 Google Flights 當主要來源** | 已聚合虎航、樂桃、捷星、酷航、華航、長榮等所有航空，一個請求涵蓋全部。直接打各家廉航官網反而容易觸發 Akamai / Cloudflare 防爬。 |
-| **少量、分散查詢** | 每 3 小時（±15 分鐘隨機）掃一次，每次 12 個日期，日期順序打亂。一天約 96 個請求，約 30 小時輪完未來 120 天。 |
-| **全域請求閘門** | 不管是定時掃描還是按按鈕查詢，所有 Google 請求都排隊經過同一個閘門，間隔隨機 8–20 秒，狂按按鈕也不會爆量。 |
-| **聰明挑日期** | 沒查過、最久沒查的日期優先；最近價格接近門檻（< 門檻 × 1.3）的日期更頻繁重查。 |
-| **異常立刻停手** | HTTP 429/403 立刻停止本輪；連續 2 個日期失敗也停止。連續 3 輪都失敗會發一次警告，恢復時再通知。 |
-| **（選用）Travelpayouts 官方 API** | 一個請求拿到整個月每天的最低價快取，零封鎖風險。用來找出可能便宜的日期，優先交給 Google 驗證。 |
+| **用 Google Flights 當來源** | 已聚合虎航、樂桃、捷星、酷航、華航、長榮等所有航空，一個請求涵蓋全部。直接打各家廉航官網反而容易觸發防爬。 |
+| **只查你在意的日期** | 背景只掃「啟用中通知規則」涵蓋的日期，沒有規則就不掃。 |
+| **少量、分散** | 預設每 3 小時（±15 分鐘隨機）掃 12 個日期，日期順序打亂，一天約 96 個請求。可在網站調整。 |
+| **全域請求閘門** | 背景掃描與網站即時查詢都排同一個隊，任兩個請求之間隨機間隔 8–20 秒，狂按也不會爆量。 |
+| **聰明挑日期** | 沒查過、最久沒查的優先；價格接近門檻的日期更頻繁重查。即時查詢可沿用近期紀錄。 |
+| **異常立刻停手** | HTTP 429/403 立刻停止；連續 2 個失敗也停止。連續 3 輪失敗發一次 Telegram 警告，恢復時再通知。 |
+| **（選用）Travelpayouts 官方 API** | 一個請求拿到整個月每天的最低價快取，零封鎖風險，用來優先挑出可能便宜的日期。 |
 | **不重複通知** | 同一班機只通知一次；更便宜、或漲回去又降下來才會再通知。 |
-
-每天晚上 9 點後（台北時間）會發一則每日摘要，順便確認系統還活著。
 
 ## 常用指令
 
 ```bash
-tail -f ~/airline_ticket/bot.log            # 看紀錄
-~/airline_ticket/run.sh --date 2026-11-18   # 命令列查單日（不通知）
-~/airline_ticket/run.sh --test-telegram     # 發測試訊息
+tail -f ~/airline_ticket/service.log                    # 看紀錄
+~/airline_ticket/run.sh --date 2026-11-18               # 命令列查單日（不通知）
+~/airline_ticket/run.sh --date 2026-11-22 --route KIX-TPE
+~/airline_ticket/run.sh --test-telegram                 # 發測試訊息
 ```
 
 移除：
@@ -67,19 +69,19 @@ tail -f ~/airline_ticket/bot.log            # 看紀錄
 crontab -l | grep -vF ~/airline_ticket/run.sh | crontab - ; kill $(cat ~/airline_ticket/state/bot.lock) ; rm -rf ~/airline_ticket
 ```
 
-## 設定
+## 設定（`~/airline_ticket/.env`）
 
-安裝時可用環境變數帶入，或之後改 `~/airline_ticket/.env` 再跑一次更新指令：
+改完再跑一次更新指令即可生效。
 
 | 變數 | 預設 | 說明 |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | — | BotFather 給的 token（必填） |
 | `TELEGRAM_CHAT_ID` | 自動偵測 | 你的 chat id |
+| `WEB_PORT` | 8787 | 網站 port |
+| `WEB_PASSWORD` | 安裝時隨機產生 | 網站密碼 |
 | `TRAVELPAYOUTS_TOKEN` | — | 選填，[travelpayouts.com](https://www.travelpayouts.com/) Profile → API token |
-| `MAX_PRICE` | 3500 | 初始門檻（之後以 bot 裡設定的為準） |
+| `MAX_PRICE` | 3500 | 第一次安裝時預設規則的門檻（之後以網站為準） |
 | `MAX_STOPS` | 0 | 0 = 只看直飛 |
-| `DAYS_AHEAD_MAX` | 120 | 監控未來幾天內出發的航班 |
-| `DATES_PER_RUN` | 12 | 每輪掃描幾個日期 |
 
 更多參數見 `ticket_watch/config.py`。
 
@@ -87,9 +89,9 @@ crontab -l | grep -vF ~/airline_ticket/run.sh | crontab - ; kill $(cat ~/airline
 
 ## 不想開電腦？用 GitHub Actions
 
-`.github/workflows/check-fares.yml` 可以在 GitHub 上定時掃描並通知（**沒有按鈕功能**，因為 Actions 無法常駐）。
+`.github/workflows/check-fares.yml` 可以在 GitHub 上定時掃描並通知（**沒有網站**，規則用預設：桃園→大阪未來 120 天 < 3500）。
 到 repo Settings → Secrets 設 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`，再把 workflow 裡的 `schedule` 取消註解即可。
-不要和家裡的 bot 同時開，會重複查詢。
+不要和家裡的服務同時開，會重複查詢。
 
 ## 注意事項
 

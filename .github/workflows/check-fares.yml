@@ -1,7 +1,7 @@
 name: Check fares TPE → KIX
 
 on:
-  # 已改用自家電腦上的常駐 bot（install.sh）定時掃描，這裡只保留手動執行。
+  # 已改用自家電腦上的常駐服務（install.sh）定時掃描，這裡只保留手動執行。
   # 若不用 bot、想改回由 GitHub 定時跑，把下面兩行取消註解（兩邊同時跑會重複查詢）。
   # schedule:
   #   - cron: "17 */3 * * *"

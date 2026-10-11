@@ -46,22 +46,6 @@ class Telegram:
                 return str(chat["id"])
         return ""
 
-    def get_updates(self, offset: int, timeout: int = 50) -> list[dict]:
-        """Long polling：最多等 timeout 秒，有新訊息/按鈕就立刻回來。"""
-        res = requests.post(
-            self._api("getUpdates"),
-            json={
-                "offset": offset,
-                "timeout": timeout,
-                "allowed_updates": ["message", "callback_query"],
-            },
-            timeout=timeout + 15,
-        )
-        body = res.json()
-        if not body.get("ok"):
-            raise RuntimeError(str(body)[:300])
-        return body.get("result", [])
-
     def send(self, text: str, reply_markup: dict | None = None) -> bool:
         if self.dry_run:
             log.info("[DRY_RUN] Telegram 訊息：\n%s", text)
@@ -91,10 +75,3 @@ class Telegram:
             payload["reply_markup"] = reply_markup
         return self.call("sendMessage", payload) is not None
 
-
-class MutedTelegram:
-    """暫停通知時使用：不發送，且回傳 False 讓班機不被標記為已通知，恢復後仍會通知。"""
-
-    def send(self, text: str, reply_markup: dict | None = None) -> bool:
-        log.info("通知已暫停，略過訊息：%s", text.splitlines()[0] if text else "")
-        return False
