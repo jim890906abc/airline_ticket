@@ -7,3 +7,4 @@ state/
 .pytest_cache/
 run.sh
 *.log
+bin/

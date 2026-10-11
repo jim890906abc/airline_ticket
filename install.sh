@@ -8,6 +8,7 @@
 #   cd ~/airline_ticket && git fetch -q origin claude/airline-ticket-notifier-5i70uz && git reset -q --hard FETCH_HEAD && bash install.sh
 #
 # 可選環境變數：TELEGRAM_CHAT_ID、TRAVELPAYOUTS_TOKEN、MAX_PRICE、WEB_PORT、WEB_PASSWORD、INSTALL_DIR
+#   公網網址：TUNNEL=quick（預設，Cloudflare 隨機網址）/ off；固定網址：CF_TUNNEL_TOKEN + PUBLIC_URL
 set -euo pipefail
 
 REPO="https://github.com/jim890906abc/airline_ticket.git"
@@ -34,6 +35,10 @@ WEB_PORT="${WEB_PORT:-$(env_get WEB_PORT)}"
 WEB_PORT="${WEB_PORT:-8787}"
 WEB_PASSWORD="${WEB_PASSWORD:-$(env_get WEB_PASSWORD)}"
 WEB_PASSWORD="${WEB_PASSWORD:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(9))')}"
+TUNNEL="${TUNNEL:-$(env_get TUNNEL)}"
+TUNNEL="${TUNNEL:-quick}"
+CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-$(env_get CF_TUNNEL_TOKEN)}"
+PUBLIC_URL="${PUBLIC_URL:-$(env_get PUBLIC_URL)}"
 [ -n "$TELEGRAM_BOT_TOKEN" ] || die "請設定 TELEGRAM_BOT_TOKEN，例如：curl ... | TELEGRAM_BOT_TOKEN=xxx bash"
 
 echo "📥 取得最新程式 → $DIR"
@@ -68,8 +73,40 @@ TRAVELPAYOUTS_TOKEN=$TRAVELPAYOUTS_TOKEN
 MAX_PRICE=$MAX_PRICE
 WEB_PORT=$WEB_PORT
 WEB_PASSWORD=$WEB_PASSWORD
+TUNNEL=$TUNNEL
+CF_TUNNEL_TOKEN=$CF_TUNNEL_TOKEN
+PUBLIC_URL=$PUBLIC_URL
 EOF
 umask 022
+
+# Cloudflare Tunnel 程式（公網網址用）：已有就沿用，超過 30 天重新下載最新版
+if [ "$TUNNEL" != off ] || [ -n "$CF_TUNNEL_TOKEN" ]; then
+  if ! command -v cloudflared >/dev/null && { [ ! -x bin/cloudflared ] || [ -n "$(find bin/cloudflared -mtime +30 2>/dev/null)" ]; }; then
+    echo "☁️  下載 cloudflared"
+    case "$(uname -m)" in
+      x86_64|amd64) CF_ARCH=amd64 ;;
+      aarch64|arm64) CF_ARCH=arm64 ;;
+      armv7l|armv6l) CF_ARCH=arm ;;
+      i386|i686) CF_ARCH=386 ;;
+      *) CF_ARCH="" ;;
+    esac
+    CF_BASE="https://github.com/cloudflare/cloudflared/releases/latest/download"
+    mkdir -p bin
+    if [ -z "$CF_ARCH" ] || ! command -v curl >/dev/null; then
+      echo "   ⚠️ 無法自動下載（不支援的 CPU 或沒有 curl），網站仍可在區網使用"
+    elif [ "$(uname -s)" = Darwin ]; then
+      curl -fsSL "$CF_BASE/cloudflared-darwin-$CF_ARCH.tgz" | tar xz -C bin || echo "   ⚠️ 下載失敗，網站仍可在區網使用"
+    else
+      if curl -fsSL -o bin/cloudflared.tmp "$CF_BASE/cloudflared-linux-$CF_ARCH"; then
+        mv bin/cloudflared.tmp bin/cloudflared
+      else
+        rm -f bin/cloudflared.tmp
+        echo "   ⚠️ 下載失敗，網站仍可在區網使用"
+      fi
+    fi
+    if [ -f bin/cloudflared ]; then chmod +x bin/cloudflared; fi
+  fi
+fi
 
 cat > run.sh <<'EOF'
 #!/usr/bin/env bash
@@ -99,6 +136,8 @@ if [ -f state/bot.lock ]; then
   fi
 fi
 echo "🚀 啟動網站與背景掃描（紀錄：$DIR/service.log）"
+mkdir -p state
+touch state/.started
 nohup ./run.sh serve >> service.log 2>&1 &
 PID=$!
 OK=0
@@ -115,15 +154,33 @@ done
 [ "$OK" = 1 ] || { tail -20 service.log; die "服務啟動失敗，請看上面的紀錄"; }
 LAN_IP="$(.venv/bin/python -c 'from ticket_watch.main import lan_ip; print(lan_ip())' 2>/dev/null || echo 127.0.0.1)"
 
+PUBLIC="（未開啟）"
+if [ "$TUNNEL" != off ] || [ -n "$CF_TUNNEL_TOKEN" ]; then
+  echo "☁️  等待 Cloudflare 公網網址…"
+  PUBLIC="（還在連線，稍後會傳到 Telegram，或看網站「安裝 / 系統」頁）"
+  for _ in $(seq 1 45); do
+    if [ -n "$CF_TUNNEL_TOKEN" ]; then
+      if [ -n "$PUBLIC_URL" ] && tail -200 service.log 2>/dev/null | grep -q "Registered tunnel connection"; then
+        PUBLIC="$PUBLIC_URL"; break
+      fi
+    elif [ -f state/public_url ] && [ state/public_url -nt state/.started ]; then
+      PUBLIC="$(cat state/public_url)"; break
+    fi
+    sleep 1
+  done
+fi
+
 cat <<EOF
 
 ✅ 完成！打開網站設定要通知的日期區間與價格：
 
+   🌍 公網網址：  $PUBLIC
    🌐 本機：      http://127.0.0.1:$WEB_PORT
-   🌐 同網路手機：http://$LAN_IP:$WEB_PORT
+   🌐 同網路：    http://$LAN_IP:$WEB_PORT
    🔑 帳號隨便填，密碼：$WEB_PASSWORD   （存在 $DIR/.env）
 
-   Telegram 只負責接收低價通知。
+   沒有固定網域時，公網網址每次服務重啟都會換新，換了會自動傳到 Telegram。
+   Telegram 只負責接收低價通知與新網址。
    看紀錄：tail -f $DIR/service.log
    更新：  cd $DIR && git fetch -q origin $BRANCH && git reset -q --hard FETCH_HEAD && bash install.sh
    移除：  crontab -l | grep -vF "$DIR/run.sh" | crontab - ; kill \$(cat $DIR/state/bot.lock) ; rm -rf "$DIR"

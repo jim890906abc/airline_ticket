@@ -47,6 +47,9 @@ class Config:
     web_host: str = "0.0.0.0"
     web_port: int = 8787
     web_password: str = ""  # 空白 = 不需要密碼（只建議在只綁 127.0.0.1 時使用）
+    tunnel: str = "quick"  # quick = Cloudflare 快速通道（隨機網址）；off = 不開公網
+    cf_tunnel_token: str = ""  # 有設定就用固定網址的 Cloudflare Tunnel
+    public_url: str = ""  # 搭配 cf_tunnel_token：你在 Cloudflare 綁的網址
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -74,4 +77,7 @@ class Config:
             web_host=os.environ.get("WEB_HOST", "0.0.0.0").strip() or "0.0.0.0",
             web_port=_int("WEB_PORT", 8787),
             web_password=os.environ.get("WEB_PASSWORD", "").strip(),
+            tunnel=os.environ.get("TUNNEL", "quick").strip().lower() or "quick",
+            cf_tunnel_token=os.environ.get("CF_TUNNEL_TOKEN", "").strip(),
+            public_url=os.environ.get("PUBLIC_URL", "").strip(),
         )

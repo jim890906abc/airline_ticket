@@ -136,6 +136,7 @@ pre.cmd { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; 
     <div class="title">
       <h1>✈️ 桃園 ⇄ 大阪 機票監控</h1>
       <span id="hdrStatus" class="pill">載入中…</span>
+      <a id="hdrUrl" class="pill hide" target="_blank" rel="noopener"></a>
     </div>
     <nav id="tabs">
       <button data-tab="overview" class="on">總覽</button>
@@ -260,6 +261,10 @@ pre.cmd { background: var(--surface-2); padding: 10px 12px; border-radius: 8px; 
     <p class="muted">更新會直接對齊 GitHub 上的版本（不會有 merge 衝突），保留 token、通知規則與價格紀錄，並自動重啟服務。目前版本：<span id="sysVer"></span></p>
   </div>
   <div class="card">
+    <h2>公網網址（Cloudflare Tunnel）</h2>
+    <div id="tunnelBox" class="muted">載入中…</div>
+  </div>
+  <div class="card">
     <h2>背景掃描設定</h2>
     <div class="row">
       <label class="f">每輪查幾個日期<input type="number" id="cfgPerRun" min="1" max="40"></label>
@@ -351,6 +356,10 @@ async function loadOverview() {
   else if (o.current_job) { st.textContent = `⏳ ${o.current_job.kind === "scan" ? "掃描" : "查詢"}中 ${o.current_job.done}/${o.current_job.total}`; st.title = o.current_job.label; st.className = "pill warn"; }
   else if (o.paused) { st.textContent = "⏸ 通知已暫停"; st.className = "pill warn"; }
   else { st.textContent = "✅ 監控中"; st.className = "pill good"; }
+
+  const hu = $("#hdrUrl");
+  if (o.public_url && location.origin !== o.public_url) { hu.href = o.public_url; hu.textContent = "🌐 公網網址"; hu.classList.remove("hide"); }
+  else hu.classList.add("hide");
 
   $("#ovStats").innerHTML = [
     ["通知", o.paused ? "⏸ 暫停中" : "✅ 開啟"],
@@ -652,6 +661,12 @@ async function loadSystem() {
   $("#cmdInstall").textContent = SYS.install_cmd;
   $("#cmdUpdate").textContent = SYS.update_cmd;
   $("#sysVer").textContent = SYS.version || "未知";
+  const t = SYS.tunnel;
+  $("#tunnelBox").innerHTML = t.mode === "off" ? `未開啟。在 <code>.env</code> 設 <code>TUNNEL=quick</code> 後重跑更新指令即可。`
+    : !t.url ? `⏳ 連線中…（重啟 ${t.restarts} 次）`
+    : `<pre class="cmd" id="pubUrl">${esc(t.url)}</pre><button class="btn sm" data-copy="pubUrl">複製</button>
+       <span class="pill ${t.connected ? "good" : "warn"}">${t.connected ? "已連線" : "重新連線中"}</span>
+       <p class="muted">${t.mode === "quick" ? "這是 Cloudflare 快速通道的隨機網址，服務或通道重啟後會換新網址，換了會自動傳到 Telegram。要固定網址請看 README 的「固定網址」。" : "固定網址（Cloudflare Tunnel token）。"}任何人拿到網址都還需要密碼才能進來。</p>`;
   $("#cfgPerRun").value = SYS.settings.dates_per_run;
   $("#cfgInterval").value = SYS.settings.scan_interval_hours;
   estCfg(); loadJobs();

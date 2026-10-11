@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 import socket
 import sys
 from datetime import date, datetime, timezone
@@ -109,6 +110,37 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def start_tunnel(cfg: Config, svc, state_dir: str, tell_user):
+    """依設定啟動 Cloudflare Tunnel，回傳 Tunnel 或 None。"""
+    from .tunnel import Tunnel, find_binary
+
+    if cfg.tunnel == "off" and not cfg.cf_tunnel_token:
+        return None
+    if not cfg.web_password:
+        log.error("沒有設定 WEB_PASSWORD，為了安全不開公網網址")
+        return None
+    binary = find_binary(os.getcwd())
+    if not binary:
+        log.error("找不到 cloudflared，不開公網網址（重跑 install.sh 會自動下載）")
+        return None
+    if cfg.cf_tunnel_token and not cfg.public_url:
+        log.warning("有 CF_TUNNEL_TOKEN 但沒設定 PUBLIC_URL，網站上會看不到網址")
+
+    def on_url(url: str) -> None:
+        if cfg.cf_tunnel_token:
+            tell_user(f"🌐 機票監控網站已上線：\n{url}")
+        else:
+            tell_user(
+                f"🌐 機票監控網站的新網址：\n{url}\n\n"
+                "（Cloudflare 快速通道每次重啟網址都會變，變了會再通知你；密碼在 ~/airline_ticket/.env）"
+            )
+
+    tunnel = Tunnel(binary, cfg.web_port, state_dir, on_url, token=cfg.cf_tunnel_token, public_url=cfg.public_url)
+    svc.tunnel = tunnel
+    tunnel.start()
+    return tunnel
+
+
 def run_server(cfg: Config, tg: Telegram, search) -> int:
     import fcntl
 
@@ -138,23 +170,40 @@ def run_server(cfg: Config, tg: Telegram, search) -> int:
         log.error("網站無法啟動（port %s 被佔用？）：%s", cfg.web_port, e)
         return 1
 
-    url = f"http://{lan_ip() if cfg.web_host in ('0.0.0.0', '') else cfg.web_host}:{cfg.web_port}"
-    # 舊版的 Telegram 按鈕選單：清掉一次，並告訴使用者網站網址
-    if not svc.settings.keyboard_removed and tg.token and tg.chat_id and not cfg.dry_run:
-        tg.call("deleteMyCommands")
-        if tg.send(
-            f"🌐 機票監控已改用網站操作：\n{url}\n\nTelegram 之後只負責接收低價通知。",
-            reply_markup={"remove_keyboard": True},
-        ):
+    lan_url = f"http://{lan_ip() if cfg.web_host in ('0.0.0.0', '') else cfg.web_host}:{cfg.web_port}"
+
+    def tell_user(text: str) -> None:
+        """發網址給使用者；第一次順便清掉舊版 Telegram 按鈕選單。"""
+        if not (tg.token and tg.chat_id) or cfg.dry_run:
+            return
+        first = not svc.settings.keyboard_removed
+        if first:
+            tg.call("deleteMyCommands")
+        if tg.send(text, reply_markup={"remove_keyboard": True} if first else None) and first:
             svc.settings.keyboard_removed = True
             svc.settings.save()
 
+    tunnel = start_tunnel(cfg, svc, state_dir, tell_user)
+    if tunnel is None:
+        if not svc.settings.keyboard_removed:
+            tell_user(f"🌐 機票監控網站：\n{lan_url}\n\nTelegram 之後只負責接收低價通知。")
+
+    def shutdown(signum, frame):
+        if tunnel:
+            tunnel.stop()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)  # 不處理 SIGHUP：nohup 啟動時要維持忽略，關掉終端機才不會停
+
     svc.start()
-    log.info("網站啟動：%s ，下次掃描 %s", url, svc.next_scan.isoformat(timespec="minutes"))
+    log.info("網站啟動：%s ，下次掃描 %s", lan_url, svc.next_scan.isoformat(timespec="minutes"))
     try:
         httpd.serve_forever()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
+    finally:
+        if tunnel:
+            tunnel.stop()
     return 0
 
 

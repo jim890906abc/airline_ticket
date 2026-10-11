@@ -147,6 +147,10 @@ class Service:
         self.current: Job | None = None
         self.jobs_lock = threading.Lock()
         self.next_scan = self._initial_next_scan()
+        self.tunnel = None  # main.run_server 會設定（ticket_watch.tunnel.Tunnel）
+
+    def public_url(self) -> str:
+        return self.tunnel.url if self.tunnel else ""
 
     # ---------------------------------------------------------------- 共用
 
@@ -425,6 +429,7 @@ class Service:
             "next_scan_at": self.next_scan.isoformat(),
             "fail_streak": st.fail_streak,
             "paused": self.settings.paused,
+            "public_url": self.public_url(),
             "current_job": self.current.to_dict(self.avg_delay) if self.current else None,
             "queued_jobs": sum(1 for j in self.jobs.values() if j.status == "queued"),
         }
@@ -523,6 +528,7 @@ class Service:
                 "currency": self.cfg.currency,
             },
             "version": _git_version(self.install_dir),
+            "tunnel": self.tunnel.status() if self.tunnel else {"mode": "off", "url": "", "connected": False, "restarts": 0},
             "install_cmd": INSTALL_CMD,
             "update_cmd": update_cmd(_tilde(self.install_dir)),
             "install_dir": self.install_dir,

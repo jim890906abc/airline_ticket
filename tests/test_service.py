@@ -280,3 +280,30 @@ def test_web_end_to_end(server):
     assert call(base, "/api/telegram/test", {})[1]["ok"]
     assert call(base, "/api/nope")[0] == 404
     assert call(base, "/api/jobs/deadbeef")[0] == 404
+
+
+def test_web_healthz_and_lockout(server):
+    svc, base = server
+    assert call(base, "/healthz", auth=None) == (200, "ok")
+    for _ in range(10):
+        assert call(base, "/api/overview", auth="wrong")[0] == 401
+    assert call(base, "/api/overview", auth="wrong")[0] == 429
+    assert call(base, "/api/overview")[0] == 429  # 被鎖期間正確密碼也不行
+    # 透過 tunnel 進來的其他 IP 不受影響
+    assert call(base, "/api/overview", headers={"CF-Connecting-IP": "203.0.113.9"})[0] == 200
+
+
+def test_web_origin_allows_public_url(server):
+    svc, base = server
+
+    class FakeTunnel:
+        url = "https://abc.trycloudflare.com"
+
+        def status(self):
+            return {"mode": "quick", "url": self.url, "connected": True, "restarts": 0}
+
+    svc.tunnel = FakeTunnel()
+    ok = call(base, "/api/system", {}, headers={"Origin": "https://abc.trycloudflare.com"})
+    assert ok[0] == 200 and ok[1]["tunnel"]["url"] == "https://abc.trycloudflare.com"
+    assert call(base, "/api/system", {}, headers={"Origin": "https://evil.trycloudflare.com"})[0] == 403
+    assert call(base, "/api/overview")[1]["public_url"] == "https://abc.trycloudflare.com"
